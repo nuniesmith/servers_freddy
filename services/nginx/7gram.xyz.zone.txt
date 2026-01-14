@@ -11,7 +11,7 @@
 www	300	IN	A	100.121.199.80
 
 ;; Host/Machine Records
-sullivan	300	IN	A	100.73.41.1
+sullivan	300	IN	A	100.87.125.19
 freddy	300	IN	A	100.121.199.80
 oryx	300	IN	A	100.95.173.39
 oryx-win	300	IN	A	100.77.171.113

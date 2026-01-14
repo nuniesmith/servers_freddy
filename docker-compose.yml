@@ -224,12 +224,12 @@ services:
       - frontend
       - backend
     extra_hosts:
-      - "sullivan.7gram.xyz:100.73.41.1"  # Sullivan server IP
-      - "sullivan:100.73.41.1"            # Short name for nginx configs
-      - "freddy.7gram.xyz:100.73.41.1"    # Freddy server IP (self)
-      - "freddy:100.73.41.1"              # Short name for nginx configs
-      - "oryx:100.73.41.1"                # Oryx server (if exists)
-      - "desktop:100.73.41.1"             # Desktop (if exists)
+      - "sullivan.7gram.xyz:100.87.125.19"  # Sullivan server IP
+      - "sullivan:100.87.125.19"            # Short name for nginx configs
+      - "freddy.7gram.xyz:100.87.125.19"    # Freddy server IP (self)
+      - "freddy:100.87.125.19"              # Short name for nginx configs
+      - "oryx:100.87.125.19"                # Oryx server (if exists)
+      - "desktop:100.87.125.19"             # Desktop (if exists)
     # Note: No depends_on - nginx should start immediately and proxy to services as they come up
     healthcheck:
       test: ["CMD-SHELL", "curl -kf https://127.0.0.1/ || exit 1"]
