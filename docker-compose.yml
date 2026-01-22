@@ -1,5 +1,8 @@
 # Docker Compose for FREDDY - Personal & Authentication Services
 # Lightweight server handling photos, cloud storage, home automation, and more.
+#
+# SIMPLIFIED NETWORKING: All services on a single network for easy DNS resolution.
+# Nginx can resolve all container names without complex network isolation.
 
 # Named volumes for data/cache/databases only
 volumes:
@@ -51,21 +54,9 @@ volumes:
             o: bind
             device: /mnt/1tb/homeassistant
 
-    # Reverse Proxy volumes
-    nginx_config:
-        driver: local
-        driver_opts:
-            type: none
-            o: bind
-            device: /mnt/1tb/nginx/config
-
-# Custom networks for service isolation
+# Single network for all services - simple and reliable DNS resolution
 networks:
-    frontend:
-        driver: bridge
-    backend:
-        driver: bridge
-    database:
+    freddy:
         driver: bridge
 
 services:
@@ -82,26 +73,24 @@ services:
         volumes:
             - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
             - ./services/nginx/conf.d:/etc/nginx/conf.d:ro
-            - ./services/nginx/html:/dashboard:ro # Mount dashboard files
-            - /opt/ssl/7gram.xyz:/etc/nginx/ssl:ro # Mount your certs
+            - ./services/nginx/html:/dashboard:ro
+            - /opt/ssl/7gram.xyz:/etc/nginx/ssl:ro
         ports:
             - "80:80"
             - "443:443"
         restart: unless-stopped
         networks:
-            - frontend
-            - backend
+            - freddy
         extra_hosts:
-            - "host.docker.internal:host-gateway" # For accessing host services (Home Assistant)
-            - "sullivan.7gram.xyz:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}" # Sullivan server IP
-            - "sullivan:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}" # Short name for nginx configs
-        # Note: No depends_on - nginx should start immediately and proxy to services as they come up
+            - "host.docker.internal:host-gateway"
+            - "sullivan.7gram.xyz:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}"
+            - "sullivan:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}"
         healthcheck:
             test: ["CMD-SHELL", "curl -kf https://127.0.0.1/health || exit 1"]
             interval: 30s
             timeout: 10s
             retries: 3
-            start_period: 15s # Give nginx time to start HTTPS
+            start_period: 15s
 
     # =============================================================================
     # PHOTO MANAGEMENT
@@ -132,8 +121,7 @@ services:
             photoprism-postgres:
                 condition: service_healthy
         networks:
-            - backend
-            - database
+            - freddy
         healthcheck:
             test: ["CMD", "photoprism", "status"]
             interval: 30s
@@ -154,7 +142,7 @@ services:
             - photoprism_postgres_data:/var/lib/postgresql/data
         restart: unless-stopped
         networks:
-            - database
+            - freddy
         healthcheck:
             test:
                 [
@@ -196,8 +184,7 @@ services:
             nextcloud-postgres:
                 condition: service_healthy
         networks:
-            - backend
-            - database
+            - freddy
         healthcheck:
             test:
                 ["CMD-SHELL", "curl -fk https://localhost/status.php || exit 1"]
@@ -219,7 +206,7 @@ services:
             - nextcloud_postgres_data:/var/lib/postgresql/data
         restart: unless-stopped
         networks:
-            - database
+            - freddy
         healthcheck:
             test:
                 [
@@ -244,7 +231,7 @@ services:
         image: ghcr.io/home-assistant/home-assistant:stable
         container_name: homeassistant
         privileged: true
-        network_mode: host # Required for device discovery
+        network_mode: host
         environment:
             - TZ=${TZ:-America/Toronto}
         volumes:
@@ -275,7 +262,7 @@ services:
             - PUID=${PUID:-1000}
             - PGID=${PGID:-1000}
         networks:
-            - backend
+            - freddy
         restart: always
         healthcheck:
             test:
