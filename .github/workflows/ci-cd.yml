@@ -138,7 +138,7 @@ jobs:
                         {"name": "grocy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "mealie.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "wiki.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
-                        {"name": "duplicati.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "duplicati.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
                       ]
 
             - name: 📋 DNS Update Summary
