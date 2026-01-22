@@ -290,7 +290,17 @@ jobs:
                   docker-prune: false
                   pre-deploy-command: |
                       echo "🏠 Deploying to Freddy server..."
-                      cd ${{ env.PROJECT_PATH }}
+
+                      # Clone repo if it doesn't exist
+                      if [ ! -d "${{ env.PROJECT_PATH }}/.git" ]; then
+                        echo "📥 First deployment - cloning repository..."
+                        mkdir -p $(dirname ${{ env.PROJECT_PATH }})
+                        git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
+                        cd ${{ env.PROJECT_PATH }}
+                        git checkout ${{ github.ref_name }}
+                      else
+                        cd ${{ env.PROJECT_PATH }}
+                      fi
 
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
