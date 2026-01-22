@@ -97,7 +97,7 @@ services:
             - "sullivan:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}" # Short name for nginx configs
         # Note: No depends_on - nginx should start immediately and proxy to services as they come up
         healthcheck:
-            test: ["CMD-SHELL", "curl -kf https://127.0.0.1/ || exit 1"]
+            test: ["CMD-SHELL", "curl -kf https://127.0.0.1/health || exit 1"]
             interval: 30s
             timeout: 10s
             retries: 3
