@@ -284,22 +284,36 @@ jobs:
                   username: ${{ secrets.SSH_USER || 'actions' }}
                   ssh-key: ${{ secrets.SSH_KEY }}
                   project-path: ${{ env.PROJECT_PATH }}
-                  git-pull: true
+                  git-pull: false
                   git-branch: ${{ github.ref_name }}
                   docker-pull: false
                   docker-prune: false
                   pre-deploy-command: |
                       echo "🏠 Deploying to Freddy server..."
 
-                      # Clone repo if it doesn't exist
+                      # Handle git repository setup
                       if [ ! -d "${{ env.PROJECT_PATH }}/.git" ]; then
-                        echo "📥 First deployment - cloning repository..."
-                        mkdir -p $(dirname ${{ env.PROJECT_PATH }})
-                        git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
-                        cd ${{ env.PROJECT_PATH }}
-                        git checkout ${{ github.ref_name }}
+                        if [ -d "${{ env.PROJECT_PATH }}" ]; then
+                          echo "📁 Directory exists but is not a git repo - initializing..."
+                          cd ${{ env.PROJECT_PATH }}
+                          git init
+                          git remote add origin https://github.com/${{ github.repository }}.git
+                          git fetch origin
+                          git checkout -f ${{ github.ref_name }}
+                          git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
+                        else
+                          echo "📥 First deployment - cloning repository..."
+                          mkdir -p $(dirname ${{ env.PROJECT_PATH }})
+                          git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
+                          cd ${{ env.PROJECT_PATH }}
+                          git checkout ${{ github.ref_name }}
+                        fi
                       else
                         cd ${{ env.PROJECT_PATH }}
+                        echo "📥 Pulling latest changes..."
+                        git fetch origin
+                        git checkout ${{ github.ref_name }}
+                        git pull origin ${{ github.ref_name }}
                       fi
 
                       # Ensure run.sh is executable
