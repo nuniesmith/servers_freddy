@@ -333,7 +333,7 @@ jobs:
                         echo "🐳 Stopping existing services..."
                         ./run.sh stop 2>/dev/null || true
                         echo "🐳 Starting services in production mode..."
-                        ./run.sh start prod
+                        ./run.sh prod start
                       else
                         echo "⚠️ run.sh not found, using docker compose directly"
                         docker compose pull --ignore-pull-failures
