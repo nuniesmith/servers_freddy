@@ -1,0 +1,429 @@
+# ============================================================================
+# CI/CD Pipeline for FREDDY - Personal & Authentication Services Server
+# ============================================================================
+# Personal home server running photos, cloud storage, home automation
+# Repository: nuniesmith/freddy
+#
+# Services: nginx, photoprism, nextcloud, homeassistant, audiobookshelf
+#
+# Features:
+#   - Cloudflare DNS management (update A records to Tailscale IPs)
+#   - SSL certificate generation via Certbot with Cloudflare DNS challenge
+#   - Deployment via Tailscale + SSH
+# ============================================================================
+
+name: 🏠 Freddy Deploy
+
+on:
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - "**.md"
+            - "docs/**"
+            - ".gitignore"
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+        inputs:
+            skip_deploy:
+                description: "Skip deployment (test workflow only)"
+                required: false
+                type: boolean
+                default: false
+            update_dns:
+                description: "Update Cloudflare DNS records"
+                required: false
+                type: boolean
+                default: true
+            renew_ssl:
+                description: "Renew SSL certificates"
+                required: false
+                type: boolean
+                default: false
+    schedule:
+        # Run SSL renewal check weekly on Sundays at 3am UTC
+        - cron: "0 3 * * 0"
+
+permissions:
+    contents: read
+
+env:
+    SERVER_NAME: freddy
+    PROJECT_PATH: ~/freddy
+    DOMAIN: 7gram.xyz
+    SSL_CERT_PATH: /opt/ssl/7gram.xyz
+
+    # Freddy DNS records (services hosted on freddy)
+    FREDDY_DNS_RECORDS: >-
+        7gram.xyz
+        *.7gram.xyz
+        nc.7gram.xyz
+        photo.7gram.xyz
+        home.7gram.xyz
+        audiobook.7gram.xyz
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    # ==========================================================================
+    # CLOUDFLARE DNS UPDATE
+    # ==========================================================================
+    dns-update:
+        name: 🌐 Update Cloudflare DNS
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        if: |
+            github.event_name == 'workflow_dispatch' && inputs.update_dns ||
+            github.event_name == 'push' ||
+            github.event_name == 'schedule'
+
+        outputs:
+            dns-updated: ${{ steps.dns-freddy.outputs.updated }}
+
+        steps:
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            - name: 🌐 Update Freddy DNS Records
+              id: dns-freddy
+              uses: nuniesmith/actions/.github/actions/cloudflare-dns-update@main
+              with:
+                  api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+                  record-name: ${{ env.DOMAIN }}
+                  record-content: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  record-type: A
+                  ttl: "1"
+                  proxied: "false"
+                  additional-records: |
+                      [
+                        {"name": "nc.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "photo.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "home.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "audiobook.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "freddy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
+                      ]
+
+            - name: 🌐 Update Sullivan DNS Records (proxied via Freddy nginx)
+              id: dns-sullivan
+              uses: nuniesmith/actions/.github/actions/cloudflare-dns-update@main
+              with:
+                  api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+                  record-name: sullivan.7gram.xyz
+                  record-content: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  record-type: A
+                  ttl: "1"
+                  proxied: "false"
+                  additional-records: |
+                      [
+                        {"name": "jellyfin.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "emby.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "plex.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "sonarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "radarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "lidarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "jackett.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "qbittorrent.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "calibre.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "yt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "filebot.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "grocy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "mealie.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "wiki.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "duplicati.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                      ]
+
+            - name: 📋 DNS Update Summary
+              run: |
+                  echo "## 🌐 DNS Update Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Target IP (Freddy Tailscale):** \`${{ secrets.FREDDY_TAILSCALE_IP }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "All DNS records for 7gram.xyz have been updated to point to the Freddy server." >> $GITHUB_STEP_SUMMARY
+                  echo "Freddy's nginx will reverse proxy Sullivan services over Tailscale." >> $GITHUB_STEP_SUMMARY
+
+    # ==========================================================================
+    # SSL CERTIFICATE MANAGEMENT
+    # ==========================================================================
+    ssl-certificates:
+        name: 🔐 SSL Certificates
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: [dns-update]
+        if: |
+            always() &&
+            (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
+            (
+                github.event_name == 'schedule' ||
+                (github.event_name == 'workflow_dispatch' && inputs.renew_ssl)
+            )
+
+        steps:
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            # ======================================================================
+            # TAILSCALE CONNECTION (needed for SSL deployment)
+            # ======================================================================
+            - name: 🔌 Connect to Tailscale
+              id: tailscale
+              uses: nuniesmith/actions/.github/actions/tailscale-connect@main
+              with:
+                  oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+                  oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
+
+            # ======================================================================
+            # GENERATE AND DEPLOY SSL CERTIFICATES
+            # ======================================================================
+            - name: 🔐 Generate SSL Certificates
+              id: ssl
+              if: steps.tailscale.outputs.connected == 'true'
+              uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
+              with:
+                  domain: ${{ env.DOMAIN }}
+                  additional-domains: "*.7gram.xyz,auth.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,jellyfin.7gram.xyz,emby.7gram.xyz,plex.7gram.xyz,sonarr.7gram.xyz,radarr.7gram.xyz,lidarr.7gram.xyz,jackett.7gram.xyz,qbittorrent.7gram.xyz,calibre.7gram.xyz,yt.7gram.xyz,filebot.7gram.xyz,grocy.7gram.xyz,mealie.7gram.xyz,wiki.7gram.xyz,duplicati.7gram.xyz,audiobook.7gram.xyz,freddy.7gram.xyz,sullivan.7gram.xyz"
+                  cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  email: ${{ secrets.SSL_EMAIL }}
+                  propagation-seconds: "60"
+                  staging: "false"
+                  fallback-to-self-signed: "true"
+                  deploy-to-server: "true"
+                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
+                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+
+            # ======================================================================
+            # RELOAD NGINX TO USE NEW CERTIFICATES
+            # ======================================================================
+            - name: 🔄 Reload Nginx with New Certificates
+              if: steps.ssl.outputs.cert-ready == 'true'
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  username: ${{ secrets.SSH_USER || 'actions' }}
+                  key: ${{ secrets.SSH_KEY }}
+                  script: |
+                      echo "🔄 Reloading nginx to use new SSL certificates..."
+                      cd ${{ env.PROJECT_PATH }}
+
+                      # Test nginx configuration
+                      docker compose exec -T nginx nginx -t
+
+                      # Reload nginx
+                      docker compose exec -T nginx nginx -s reload
+
+                      echo "✅ Nginx reloaded with new SSL certificates"
+
+            - name: 📋 SSL Summary
+              if: always()
+              run: |
+                  echo "## 🔐 SSL Certificate Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+                  echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+                  echo "| Domain | \`${{ env.DOMAIN }}\` |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Certificate Ready | ${{ steps.ssl.outputs.cert-ready || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Certificate Type | ${{ steps.ssl.outputs.cert-type || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Expiry Date | ${{ steps.ssl.outputs.expiry-date || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Deployed | ${{ steps.ssl.outputs.deployed || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+
+    # ==========================================================================
+    # DEPLOY
+    # ==========================================================================
+    deploy:
+        name: 🚀 Deploy to Freddy
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: [dns-update]
+        if: |
+            always() &&
+            (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
+            (
+                github.event_name == 'push' ||
+                (github.event_name == 'workflow_dispatch' && !inputs.skip_deploy)
+            )
+
+        steps:
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            # ======================================================================
+            # TAILSCALE CONNECTION
+            # ======================================================================
+            - name: 🔌 Connect to Tailscale
+              id: tailscale
+              uses: nuniesmith/actions/.github/actions/tailscale-connect@main
+              with:
+                  oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+                  oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
+
+            # ======================================================================
+            # DEPLOY VIA SSH
+            # ======================================================================
+            - name: 🚀 Deploy via SSH
+              id: deploy
+              if: steps.tailscale.outputs.connected == 'true'
+              uses: nuniesmith/actions/.github/actions/ssh-deploy@main
+              with:
+                  host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  username: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  project-path: ${{ env.PROJECT_PATH }}
+                  git-pull: true
+                  git-branch: ${{ github.ref_name }}
+                  docker-pull: false
+                  docker-prune: false
+                  pre-deploy-command: |
+                      echo "🏠 Deploying to Freddy server..."
+                      cd ${{ env.PROJECT_PATH }}
+
+                      # Ensure run.sh is executable
+                      chmod +x ./run.sh 2>/dev/null || true
+
+                      # Load environment variables
+                      if [ -f .env ]; then
+                        set -a && source .env && set +a
+                        echo "✓ Environment loaded"
+                      fi
+
+                  deploy-command: |
+                      cd ${{ env.PROJECT_PATH }}
+
+                      # Deploy using run.sh
+                      if [ -x "./run.sh" ]; then
+                        echo "🐳 Stopping existing services..."
+                        ./run.sh stop 2>/dev/null || true
+                        echo "🐳 Starting services in production mode..."
+                        ./run.sh start prod
+                      else
+                        echo "⚠️ run.sh not found, using docker compose directly"
+                        docker compose pull --ignore-pull-failures
+                        docker compose up -d --remove-orphans
+                      fi
+
+                  post-deploy-command: |
+                      cd ${{ env.PROJECT_PATH }}
+
+                      echo ""
+                      echo "📊 Service Status:"
+                      docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
+
+                      echo ""
+                      echo "✅ Deployment complete!"
+
+            # ======================================================================
+            # HEALTH CHECKS
+            # ======================================================================
+            - name: 🏥 Run Health Checks
+              id: health-checks
+              if: always() && steps.deploy.outcome == 'success'
+              uses: nuniesmith/actions/.github/actions/health-check@main
+              with:
+                  containers: nginx,photoprism,nextcloud,homeassistant,audiobookshelf
+                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
+                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  initial-delay: 30
+                  retry-count: 3
+                  retry-delay: 10
+                  fail-on-unhealthy: false
+
+            # ======================================================================
+            # DISCORD NOTIFICATION (Optional)
+            # ======================================================================
+            - name: 📣 Notify deployment
+              if: always()
+              uses: nuniesmith/actions/.github/actions/discord-notify@main
+              continue-on-error: true
+              with:
+                  webhook-url: ${{ secrets.DISCORD_WEBHOOK_ACTIONS }}
+                  title: "🏠 Freddy Deployment"
+                  description: "Personal services server deployment"
+                  status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
+                  include-repo-info: true
+                  fields: |
+                      [
+                        {"name": "Server", "value": "Freddy", "inline": true},
+                        {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+                        {"name": "Health", "value": "${{ steps.health-checks.outputs.healthy == 'true' && '✅ Healthy' || '⚠️ Check Required' }}", "inline": true}
+                      ]
+
+    # ==========================================================================
+    # PIPELINE SUMMARY
+    # ==========================================================================
+    summary:
+        name: 📊 Summary
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [dns-update, ssl-certificates, deploy]
+        if: always()
+
+        steps:
+            - name: 📊 Generate summary
+              run: |
+                  echo "## 🏠 Freddy Deployment Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+                  echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+
+                  # DNS Update status
+                  if [ "${{ needs.dns-update.result }}" = "success" ]; then
+                    echo "| 🌐 DNS Update | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.dns-update.result }}" = "skipped" ]; then
+                    echo "| 🌐 DNS Update | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🌐 DNS Update | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  # SSL Certificates status
+                  if [ "${{ needs.ssl-certificates.result }}" = "success" ]; then
+                    echo "| 🔐 SSL Certs | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.ssl-certificates.result }}" = "skipped" ]; then
+                    echo "| 🔐 SSL Certs | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🔐 SSL Certs | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  # Deploy status
+                  if [ "${{ needs.deploy.result }}" = "success" ]; then
+                    echo "| 🚀 Deploy | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.deploy.result }}" = "skipped" ]; then
+                    echo "| 🚀 Deploy | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🚀 Deploy | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📋 Details" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Server:** Freddy (Personal Services)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Domain:** ${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 🔧 Architecture" >> $GITHUB_STEP_SUMMARY
+                  echo "- All DNS records point to Freddy's Tailscale IP" >> $GITHUB_STEP_SUMMARY
+                  echo "- Freddy's nginx reverse proxies Sullivan services over Tailscale" >> $GITHUB_STEP_SUMMARY
+                  echo "- SSL certificates cover both Freddy and Sullivan subdomains" >> $GITHUB_STEP_SUMMARY
+
+            - name: ❌ Fail on deployment error
+              if: needs.deploy.result == 'failure'
+              run: |
+                  echo "::error::Deployment failed"
+                  exit 1

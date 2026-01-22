@@ -1,532 +1,289 @@
-# Docker Compose for FREDDY - Personal & Authentication Services  
-# Lightweight server handling photos, cloud storage, home automation, and auth
+# Docker Compose for FREDDY - Personal & Authentication Services
+# Lightweight server handling photos, cloud storage, home automation, and more.
 
 # Named volumes for data/cache/databases only
 volumes:
-  # Photo Management volumes
-  photos_originals:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/photos
-  photoprism_storage:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/photoprism/storage
-  photoprism_postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/photoprism/postgres
+    # Photo Management volumes
+    photos_originals:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/photos
+    photoprism_storage:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/photoprism/storage
+    photoprism_postgres_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/photoprism/postgres
 
-  # Cloud Storage volumes
-  nextcloud_config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/nextcloud/config
-  nextcloud_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/nextcloud/data
-  nextcloud_postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/nextcloud/postgres
+    # Cloud Storage volumes
+    nextcloud_config:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/nextcloud/config
+    nextcloud_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/nextcloud/data
+    nextcloud_postgres_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/nextcloud/postgres
 
-  # System Services volumes
-  homeassistant_config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/homeassistant
+    # System Services volumes
+    homeassistant_config:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/homeassistant
 
-  # Authentication volumes
-  authelia_config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/authelia/config
-  redis_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/authelia/redis
-  authelia_postgres_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/authelia/postgres
-
-  # Reverse Proxy volumes  
-  nginx_config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/nginx/config
-
-  # Syncthing volumes
-  syncthing_config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/syncthing/config
-  syncthing_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/syncthing/data
-
-  # OctoBot volumes
-  octobot_spot_demo_logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-demo/logs
-  octobot_spot_demo_backtesting:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-demo/backtesting
-  octobot_spot_demo_tentacles:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-demo/tentacles
-  octobot_spot_demo_user:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-demo/user
-  octobot_spot_live_logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-live/logs
-  octobot_spot_live_backtesting:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-live/backtesting
-  octobot_spot_live_tentacles:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-live/tentacles
-  octobot_spot_live_user:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/spot-live/user
-  octobot_futures_demo_logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-demo/logs
-  octobot_futures_demo_backtesting:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-demo/backtesting
-  octobot_futures_demo_tentacles:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-demo/tentacles
-  octobot_futures_demo_user:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-demo/user
-  octobot_futures_live_logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-live/logs
-  octobot_futures_live_backtesting:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-live/backtesting
-  octobot_futures_live_tentacles:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-live/tentacles
-  octobot_futures_live_user:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /mnt/1tb/octobot/futures-live/user
+    # Reverse Proxy volumes
+    nginx_config:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/nginx/config
 
 # Custom networks for service isolation
 networks:
-  frontend:
-    driver: bridge
-  backend:
-    driver: bridge
-  database:
-    driver: bridge
+    frontend:
+        driver: bridge
+    backend:
+        driver: bridge
+    database:
+        driver: bridge
 
 services:
-  # =============================================================================
-  # REVERSE PROXY
-  # =============================================================================
+    # =============================================================================
+    # REVERSE PROXY
+    # =============================================================================
 
-  # nginx reverse proxy
-  nginx:
-    image: nginx:latest
-    container_name: nginx
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./services/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./services/nginx/html:/dashboard:ro  # Mount dashboard files
-      - /opt/ssl/7gram.xyz:/etc/nginx/ssl:ro  # Mount your certs
-    ports:
-      - "80:80"
-      - "443:443"
-    restart: unless-stopped
-    networks:
-      - frontend
-      - backend
-    extra_hosts:
-      - "sullivan.7gram.xyz:100.87.125.19"  # Sullivan server IP
-      - "sullivan:100.87.125.19"            # Short name for nginx configs
-      - "freddy.7gram.xyz:100.87.125.19"    # Freddy server IP (self)
-      - "freddy:100.87.125.19"              # Short name for nginx configs
-      - "oryx:100.87.125.19"                # Oryx server (if exists)
-      - "desktop:100.87.125.19"             # Desktop (if exists)
-    # Note: No depends_on - nginx should start immediately and proxy to services as they come up
-    healthcheck:
-      test: ["CMD-SHELL", "curl -kf https://127.0.0.1/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s  # Give nginx time to start HTTPS
+    # nginx reverse proxy
+    nginx:
+        image: nginx:latest
+        container_name: nginx
+        environment:
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./services/nginx/conf.d:/etc/nginx/conf.d:ro
+            - ./services/nginx/html:/dashboard:ro # Mount dashboard files
+            - /opt/ssl/7gram.xyz:/etc/nginx/ssl:ro # Mount your certs
+        ports:
+            - "80:80"
+            - "443:443"
+        restart: unless-stopped
+        networks:
+            - frontend
+            - backend
+        extra_hosts:
+            - "host.docker.internal:host-gateway" # For accessing host services (Home Assistant)
+            - "sullivan.7gram.xyz:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}" # Sullivan server IP
+            - "sullivan:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}" # Short name for nginx configs
+        # Note: No depends_on - nginx should start immediately and proxy to services as they come up
+        healthcheck:
+            test: ["CMD-SHELL", "curl -kf https://127.0.0.1/ || exit 1"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s # Give nginx time to start HTTPS
 
-  # =============================================================================
-  # PHOTO MANAGEMENT
-  # =============================================================================
+    # =============================================================================
+    # PHOTO MANAGEMENT
+    # =============================================================================
 
-  # photoprism - dedicated photo management app
-  photoprism:
-    image: photoprism/photoprism:latest
-    container_name: photoprism
-    environment:
-      - PHOTOPRISM_ADMIN_PASSWORD=${PHOTOPRISM_ADMIN_PASSWORD:-pleasechange}
-      - PHOTOPRISM_SITE_URL=http://localhost:2342/
-      - PHOTOPRISM_DATABASE_DRIVER=postgres
-      - PHOTOPRISM_DATABASE_SERVER=photoprism-postgres:5432
-      - PHOTOPRISM_DATABASE_NAME=${PHOTOPRISM_DB_NAME:-photoprism}
-      - PHOTOPRISM_DATABASE_USER=${PHOTOPRISM_DB_USER:-photoprism}
-      - PHOTOPRISM_DATABASE_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
-      - PHOTOPRISM_UID=${PUID:-1000}
-      - PHOTOPRISM_GID=${PGID:-1000}
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - /mnt/1tb/photos/originals:/photoprism/originals
-      - photoprism_storage:/photoprism/storage
-    ports:
-      - "2342:2342"
-    restart: unless-stopped
-    depends_on:
-      photoprism-postgres:
-        condition: service_healthy
-    networks:
-      - backend
-      - database
-    healthcheck:
-      test: ["CMD", "photoprism", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    # photoprism - dedicated photo management app
+    photoprism:
+        image: photoprism/photoprism:latest
+        container_name: photoprism
+        environment:
+            - PHOTOPRISM_ADMIN_PASSWORD=${PHOTOPRISM_ADMIN_PASSWORD:-pleasechange}
+            - PHOTOPRISM_SITE_URL=http://localhost:2342/
+            - PHOTOPRISM_DATABASE_DRIVER=postgres
+            - PHOTOPRISM_DATABASE_SERVER=photoprism-postgres:5432
+            - PHOTOPRISM_DATABASE_NAME=${PHOTOPRISM_DB_NAME:-photoprism}
+            - PHOTOPRISM_DATABASE_USER=${PHOTOPRISM_DB_USER:-photoprism}
+            - PHOTOPRISM_DATABASE_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
+            - PHOTOPRISM_UID=${PUID:-1000}
+            - PHOTOPRISM_GID=${PGID:-1000}
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - /mnt/1tb/photos/originals:/photoprism/originals
+            - photoprism_storage:/photoprism/storage
+        ports:
+            - "2342:2342"
+        restart: unless-stopped
+        depends_on:
+            photoprism-postgres:
+                condition: service_healthy
+        networks:
+            - backend
+            - database
+        healthcheck:
+            test: ["CMD", "photoprism", "status"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 60s
 
-  # postgres database for photoprism
-  photoprism-postgres:
-    image: postgres:16-alpine
-    container_name: photoprism-postgres
-    environment:
-      - POSTGRES_DB=${PHOTOPRISM_DB_NAME:-photoprism}
-      - POSTGRES_USER=${PHOTOPRISM_DB_USER:-photoprism}
-      - POSTGRES_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - photoprism_postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-    networks:
-      - database
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${PHOTOPRISM_DB_USER:-photoprism}", "-d", "${PHOTOPRISM_DB_NAME:-photoprism}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # postgres database for photoprism
+    photoprism-postgres:
+        image: postgres:16-alpine
+        container_name: photoprism-postgres
+        environment:
+            - POSTGRES_DB=${PHOTOPRISM_DB_NAME:-photoprism}
+            - POSTGRES_USER=${PHOTOPRISM_DB_USER:-photoprism}
+            - POSTGRES_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - photoprism_postgres_data:/var/lib/postgresql/data
+        restart: unless-stopped
+        networks:
+            - database
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "pg_isready",
+                    "-U",
+                    "${PHOTOPRISM_DB_USER:-photoprism}",
+                    "-d",
+                    "${PHOTOPRISM_DB_NAME:-photoprism}",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
 
-  # =============================================================================
-  # CLOUD STORAGE
-  # =============================================================================
+    # =============================================================================
+    # CLOUD STORAGE
+    # =============================================================================
 
-  # nextcloud - file sharing with postgres db
-  nextcloud:
-    image: lscr.io/linuxserver/nextcloud:latest
-    container_name: nextcloud
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-America/Toronto}
-      - POSTGRES_HOST=nextcloud-postgres
-      - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
-      - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
-      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
-    volumes:
-      - nextcloud_config:/config
-      - nextcloud_data:/data
-    ports:
-      - "8443:443"
-    restart: unless-stopped
-    depends_on:
-      nextcloud-postgres:
-        condition: service_healthy
-    networks:
-      - backend
-      - database
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fk https://localhost/status.php || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
+    # nextcloud - file sharing with postgres db
+    nextcloud:
+        image: lscr.io/linuxserver/nextcloud:latest
+        container_name: nextcloud
+        environment:
+            - PUID=${PUID:-1000}
+            - PGID=${PGID:-1000}
+            - TZ=${TZ:-America/Toronto}
+            - POSTGRES_HOST=nextcloud-postgres
+            - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
+            - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
+            - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
+        volumes:
+            - nextcloud_config:/config
+            - nextcloud_data:/data
+        ports:
+            - "8443:443"
+        restart: unless-stopped
+        depends_on:
+            nextcloud-postgres:
+                condition: service_healthy
+        networks:
+            - backend
+            - database
+        healthcheck:
+            test:
+                ["CMD-SHELL", "curl -fk https://localhost/status.php || exit 1"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 90s
 
-  # postgres database for nextcloud
-  nextcloud-postgres:
-    image: postgres:16-alpine
-    container_name: nextcloud-postgres
-    environment:
-      - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
-      - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
-      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - nextcloud_postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-    networks:
-      - database
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${NEXTCLOUD_DB_USER:-nextcloud}", "-d", "${NEXTCLOUD_DB_NAME:-nextcloud}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # postgres database for nextcloud
+    nextcloud-postgres:
+        image: postgres:16-alpine
+        container_name: nextcloud-postgres
+        environment:
+            - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
+            - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
+            - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - nextcloud_postgres_data:/var/lib/postgresql/data
+        restart: unless-stopped
+        networks:
+            - database
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "pg_isready",
+                    "-U",
+                    "${NEXTCLOUD_DB_USER:-nextcloud}",
+                    "-d",
+                    "${NEXTCLOUD_DB_NAME:-nextcloud}",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
 
-  # =============================================================================
-  # SYSTEM SERVICES
-  # =============================================================================
+    # =============================================================================
+    # SYSTEM SERVICES
+    # =============================================================================
 
-  # home assistant (requires host network for device discovery)
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    container_name: homeassistant
-    privileged: true
-    network_mode: host  # Required for device discovery
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - homeassistant_config:/config
-      - /etc/localtime:/etc/localtime:ro
-      - /run/dbus:/run/dbus:ro
-      - /dev:/dev
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8123/manifest.json"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    # home assistant (requires host network for device discovery)
+    homeassistant:
+        image: ghcr.io/home-assistant/home-assistant:stable
+        container_name: homeassistant
+        privileged: true
+        network_mode: host # Required for device discovery
+        environment:
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - homeassistant_config:/config
+            - /etc/localtime:/etc/localtime:ro
+            - /run/dbus:/run/dbus:ro
+            - /dev:/dev
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD", "curl", "-sf", "http://localhost:8123/manifest.json"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 60s
 
-  # audiobookshelf
-  audiobookshelf:
-    image: ghcr.io/advplyr/audiobookshelf:latest
-    container_name: audiobookshelf
-    ports:
-      - 13378:80
-    volumes:
-      - ./services/audiobookshelf/config:/config
-      - ./services/audiobookshelf/metadata:/metadata
-      - ${MEDIA_PATH_AUDIOBOOKS:-/media/audiobooks}:/audiobooks
-    environment:
-      - TZ=${TZ:-America/Toronto}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-    networks:
-      - backend
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:80/healthcheck || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # =============================================================================
-  # FILE SYNCHRONIZATION
-  # =============================================================================
-
-  # syncthing - continuous file synchronization
-  syncthing:
-    image: lscr.io/linuxserver/syncthing:latest
-    container_name: syncthing
-    hostname: freddy-syncthing
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - syncthing_config:/config
-      - syncthing_data:/data
-      # Add additional sync folders as needed
-      # - /mnt/1tb/sync:/sync
-    ports:
-      - "8384:8384"      # Web UI
-      - "22000:22000/tcp" # TCP file transfers
-      - "22000:22000/udp" # QUIC file transfers  
-      - "21027:21027/udp" # Local discovery
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8384/rest/noauth/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  # =============================================================================
-  # TRADING BOTS
-  # =============================================================================
-
-  # octobot-spot-demo - cryptocurrency trading bot for spot demo account
-  octobot-spot-demo:
-    image: drakkarsoftware/octobot:stable
-    container_name: octobot-spot-demo
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - octobot_spot_demo_logs:/octobot/logs
-      - octobot_spot_demo_backtesting:/octobot/backtesting
-      - octobot_spot_demo_tentacles:/octobot/tentacles
-      - octobot_spot_demo_user:/octobot/user
-    ports:
-      - "5001:5001"
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001 || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # octobot-spot-live - cryptocurrency trading bot for spot live account
-  octobot-spot-live:
-    image: drakkarsoftware/octobot:stable
-    container_name: octobot-spot-live
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - octobot_spot_live_logs:/octobot/logs
-      - octobot_spot_live_backtesting:/octobot/backtesting
-      - octobot_spot_live_tentacles:/octobot/tentacles
-      - octobot_spot_live_user:/octobot/user
-    ports:
-      - "5002:5001"
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001 || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # octobot-futures-demo - cryptocurrency trading bot for futures demo account
-  octobot-futures-demo:
-    image: drakkarsoftware/octobot:stable
-    container_name: octobot-futures-demo
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - octobot_futures_demo_logs:/octobot/logs
-      - octobot_futures_demo_backtesting:/octobot/backtesting
-      - octobot_futures_demo_tentacles:/octobot/tentacles
-      - octobot_futures_demo_user:/octobot/user
-    ports:
-      - "5003:5001"
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001 || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # octobot-futures-live - cryptocurrency trading bot for futures live account
-  octobot-futures-live:
-    image: drakkarsoftware/octobot:stable
-    container_name: octobot-futures-live
-    environment:
-      - TZ=${TZ:-America/Toronto}
-    volumes:
-      - octobot_futures_live_logs:/octobot/logs
-      - octobot_futures_live_backtesting:/octobot/backtesting
-      - octobot_futures_live_tentacles:/octobot/tentacles
-      - octobot_futures_live_user:/octobot/user
-    ports:
-      - "5004:5001"
-    restart: unless-stopped
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001 || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    # audiobookshelf
+    audiobookshelf:
+        image: ghcr.io/advplyr/audiobookshelf:latest
+        container_name: audiobookshelf
+        ports:
+            - 13378:80
+        volumes:
+            - ./services/audiobookshelf/config:/config
+            - ./services/audiobookshelf/metadata:/metadata
+            - ${MEDIA_PATH_AUDIOBOOKS:-/media/audiobooks}:/audiobooks
+        environment:
+            - TZ=${TZ:-America/Toronto}
+            - PUID=${PUID:-1000}
+            - PGID=${PGID:-1000}
+        networks:
+            - backend
+        restart: always
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "wget --spider --quiet http://localhost:80/healthcheck || exit 1",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
