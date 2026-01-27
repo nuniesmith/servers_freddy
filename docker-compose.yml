@@ -72,6 +72,8 @@ services:
         container_name: nginx
         environment:
             - TZ=${TZ:-America/Toronto}
+        volumes:
+            - /opt/ssl/7gram.xyz:/etc/letsencrypt-volume:ro
         ports:
             - "80:80"
             - "443:443"
