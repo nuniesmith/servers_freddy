@@ -319,6 +319,15 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
+                      # Check SSL certificates
+                      CERT_DIR="/opt/ssl/7gram.xyz"
+                      if [ ! -f "$CERT_DIR/fullchain.pem" ] || ! openssl x509 -checkend 604800 -noout -in "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
+                        echo "🔐 SSL certs missing or expire soon (<=7 days), generating Let's Encrypt certs..."
+                        cd scripts && ./letsencrypt.sh && cd .. && echo "✅ SSL generated" || { echo "⚠️ SSL gen failed, proceeding with self-signed fallback"; cd ..; }
+                      else
+                        echo "✅ SSL certs valid"
+                      fi
+
                       # Load environment variables
                       if [ -f .env ]; then
                         set -a && source .env && set +a
