@@ -36,11 +36,6 @@ on:
                 required: false
                 type: boolean
                 default: true
-            renew_ssl:
-                description: "Renew SSL certificates"
-                required: false
-                type: boolean
-                default: false
     schedule:
         # Run SSL renewal check weekly on Sundays at 3am UTC
         - cron: "0 3 * * 0"
@@ -153,91 +148,6 @@ jobs:
     # ==========================================================================
     # SSL CERTIFICATE MANAGEMENT
     # ==========================================================================
-    ssl-certificates:
-        name: 🔐 SSL Certificates
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        needs: [dns-update]
-        if: |
-            always() &&
-            (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
-            (
-                github.event_name == 'schedule' ||
-                (github.event_name == 'workflow_dispatch' && inputs.renew_ssl)
-            )
-
-        steps:
-            - name: 📥 Checkout code
-              uses: actions/checkout@v4
-
-            # ======================================================================
-            # TAILSCALE CONNECTION (needed for SSL deployment)
-            # ======================================================================
-            - name: 🔌 Connect to Tailscale
-              id: tailscale
-              uses: nuniesmith/actions/.github/actions/tailscale-connect@main
-              with:
-                  oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
-                  oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
-                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
-                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
-
-            # ======================================================================
-            # GENERATE AND DEPLOY SSL CERTIFICATES
-            # ======================================================================
-            - name: 🔐 Generate SSL Certificates
-              id: ssl
-              if: steps.tailscale.outputs.connected == 'true'
-              uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
-              with:
-                  domain: ${{ env.DOMAIN }}
-                  additional-domains: "*.7gram.xyz,auth.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,jellyfin.7gram.xyz,emby.7gram.xyz,plex.7gram.xyz,sonarr.7gram.xyz,radarr.7gram.xyz,lidarr.7gram.xyz,jackett.7gram.xyz,qbittorrent.7gram.xyz,calibre.7gram.xyz,yt.7gram.xyz,filebot.7gram.xyz,grocy.7gram.xyz,mealie.7gram.xyz,wiki.7gram.xyz,duplicati.7gram.xyz,audiobook.7gram.xyz,freddy.7gram.xyz,sullivan.7gram.xyz"
-                  cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-                  email: ${{ secrets.SSL_EMAIL }}
-                  propagation-seconds: "60"
-                  staging: "false"
-                  fallback-to-self-signed: "true"
-                  deploy-to-server: "true"
-                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
-                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
-                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
-                  ssh-key: ${{ secrets.SSH_KEY }}
-
-            # ======================================================================
-            # RELOAD NGINX TO USE NEW CERTIFICATES
-            # ======================================================================
-            - name: 🔄 Reload Nginx with New Certificates
-              if: steps.ssl.outputs.cert-ready == 'true'
-              uses: appleboy/ssh-action@v1.0.3
-              with:
-                  host: ${{ secrets.FREDDY_TAILSCALE_IP }}
-                  port: ${{ secrets.SSH_PORT || '22' }}
-                  username: ${{ secrets.SSH_USER || 'actions' }}
-                  key: ${{ secrets.SSH_KEY }}
-                  script: |
-                      echo "🔄 Reloading nginx to use new SSL certificates..."
-                      cd ${{ env.PROJECT_PATH }}
-
-                      # Test nginx configuration
-                      docker compose exec -T nginx nginx -t
-
-                      # Reload nginx
-                      docker compose exec -T nginx nginx -s reload
-
-                      echo "✅ Nginx reloaded with new SSL certificates"
-
-            - name: 📋 SSL Summary
-              if: always()
-              run: |
-                  echo "## 🔐 SSL Certificate Summary" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-                  echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-                  echo "| Domain | \`${{ env.DOMAIN }}\` |" >> $GITHUB_STEP_SUMMARY
-                  echo "| Certificate Ready | ${{ steps.ssl.outputs.cert-ready || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-                  echo "| Certificate Type | ${{ steps.ssl.outputs.cert-type || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-                  echo "| Expiry Date | ${{ steps.ssl.outputs.expiry-date || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-                  echo "| Deployed | ${{ steps.ssl.outputs.deployed || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
 
     # ==========================================================================
     # DEPLOY
@@ -321,6 +231,8 @@ jobs:
 
                       # Check SSL certificates
                       CERT_DIR="/opt/ssl/7gram.xyz"
+                      echo "🔍 Checking SSL certs in $CERT_DIR"
+                      ls -la $CERT_DIR 2>/dev/null || echo "  Cert dir not found"
                       if [ ! -f "$CERT_DIR/fullchain.pem" ] || ! openssl x509 -checkend 604800 -noout -in "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
                         echo "🔐 SSL certs missing or expire soon (<=7 days), generating Let's Encrypt certs..."
                         cd scripts && ./letsencrypt.sh && cd .. && echo "✅ SSL generated" || { echo "⚠️ SSL gen failed, proceeding with self-signed fallback"; cd ..; }
@@ -403,8 +315,8 @@ jobs:
     summary:
         name: 📊 Summary
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [dns-update, ssl-certificates, deploy]
+        timeout-minutes: 10
+        needs: [dns-update, deploy]
         if: always()
 
         steps:
