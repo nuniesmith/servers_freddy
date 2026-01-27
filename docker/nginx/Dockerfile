@@ -38,8 +38,7 @@ RUN mkdir -p /etc/nginx/ssl/fallback && \
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/fallback/privkey.pem \
     -out /etc/nginx/ssl/fallback/fullchain.pem \
-    -subj "/C=CA/ST=Ontario/L=Toronto/O=Freddy/CN=7gram.xyz" \
-    -addext "subjectAltName = DNS:7gram.xyz,DNS:*.7gram.xyz" && \
+    -subj "/C=CA/ST=Ontario/L=Toronto/O=Freddy/CN=7gram.xyz" && \
     # Create the directory for cert symlinks (symlinks created at runtime by entrypoint)
     mkdir -p /etc/letsencrypt/live/7gram.xyz
 
