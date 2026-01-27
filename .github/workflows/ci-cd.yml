@@ -218,6 +218,7 @@ jobs:
                         git clean -fdx
                       else
                         echo "📥 First deployment - cloning repository..."
+                        if [ -d ${{ env.PROJECT_PATH }} ]; then cd ${{ env.PROJECT_PATH }} && (docker compose down 2>/dev/null || true); cd .. ; fi
                         cd ..
                         rm -rf ${{ env.PROJECT_PATH }}
                         mkdir -p ${{ env.PROJECT_PATH }}
