@@ -1,24 +1,20 @@
 #!/bin/bash
-# Let's Encrypt Wildcard Certificate Setup for 7gram.xyz - FEDORA 42 SERVER + CLOUDFLARE VERSION
+#
 
-set -e  # Exit on any error
 
-echo "🚀 Starting Let's Encrypt setup for Fedora 42 Server with Cloudflare..."
 
 # Update system first
 echo "📦 Updating system..."
-sudo dnf update -y
+sudo apt update -y
 
-# Install certbot and required packages
-echo "📥 Installing certbot and dependencies..."
-sudo dnf install -y certbot python3-pip git curl
-
-# Install Cloudflare plugin
-echo "📥 Installing Cloudflare plugin..."
-sudo dnf install -y python3-certbot-dns-cloudflare || {
-    echo "📥 Installing via pip as fallback..."
-    sudo pip3 install certbot-dns-cloudflare
-}
+echo "📥 Installing snapd, certbot and Cloudflare plugin..."
+sudo apt install -y snapd curl
+sudo snap install core
+sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -s /snap/bin/certbot /usr/bin/certbot
+sudo snap set certbot trust-plugin-with-root=ok
+sudo snap install certbot-dns-cloudflare
 
 # Create directories
 echo "📁 Creating necessary directories..."
@@ -92,21 +88,22 @@ if [ -f /etc/letsencrypt/live/7gram.xyz/fullchain.pem ]; then
     # Copy with original names
     cp /etc/letsencrypt/live/7gram.xyz/fullchain.pem $SCRIPT_DIR/config/nginx/certs/
     cp /etc/letsencrypt/live/7gram.xyz/privkey.pem $SCRIPT_DIR/config/nginx/certs/
-    
+
     # Copy with nginx expected names
     cp /etc/letsencrypt/live/7gram.xyz/fullchain.pem $SCRIPT_DIR/config/nginx/certs/7gram.xyz.crt
     cp /etc/letsencrypt/live/7gram.xyz/privkey.pem $SCRIPT_DIR/config/nginx/certs/7gram.xyz.key
-    
+
     # Fix permissions
-    chown -R $USER:$USER $SCRIPT_DIR/config/nginx/certs/
-    chmod 644 $SCRIPT_DIR/config/nginx/certs/*.pem $SCRIPT_DIR/config/nginx/certs/*.crt
-    chmod 600 $SCRIPT_DIR/config/nginx/certs/privkey.pem $SCRIPT_DIR/config/nginx/certs/*.key
-    
+    OWNER=$(stat -c '%U:%G' "$SCRIPT_DIR")
+    chown -R "$OWNER" "$SCRIPT_DIR/config/nginx/certs/"
+    chmod 644 "$SCRIPT_DIR/config/nginx/certs/"*.pem "$SCRIPT_DIR/config/nginx/certs/"*.crt
+    chmod 600 "$SCRIPT_DIR/config/nginx/certs/privkey.pem" "$SCRIPT_DIR/config/nginx/certs/"*.key
+
     # Reload nginx container if running
     if docker ps | grep -q "nginx"; then
         docker exec nginx nginx -s reload || echo "Could not reload nginx container"
     fi
-    
+
     echo "Certificates renewed and copied to $SCRIPT_DIR/config/nginx/certs/"
 fi
 EOF
@@ -145,13 +142,13 @@ sudo systemctl daemon-reload
 sudo systemctl enable certbot-renewal.timer
 sudo systemctl start certbot-renewal.timer
 
-# Enable and start firewalld if not already running (Fedora security)
-if ! systemctl is-active --quiet firewalld; then
-    echo "🔥 Enabling firewalld for security..."
-    sudo systemctl enable --now firewalld
-    sudo firewall-cmd --permanent --add-service=http
-    sudo firewall-cmd --permanent --add-service=https
-    sudo firewall-cmd --reload
+# Enable and start ufw if not already running (Ubuntu security)
+if ! command -v ufw >/dev/null 2>&1 || ! sudo ufw status | grep -q "Status: active"; then
+    echo "🔥 Enabling ufw for security..."
+    sudo apt install -y ufw
+    sudo ufw allow OpenSSH
+    sudo ufw allow 'Nginx Full'
+    sudo ufw --force enable
 fi
 
 echo "✅ Automatic renewal configured!"
@@ -202,6 +199,6 @@ echo "- Dashboard → My Profile → API Tokens → Global API Key"
 echo "- Or create a custom API token with Zone:DNS:Edit permissions"
 echo ""
 echo "🔧 FEDORA SPECIFIC FEATURES:"
-echo "- Uses DNF package manager"
+echo "- Uses apt package manager"
 echo "- Firewalld configured for web traffic"
 echo "- SELinux compatible (default Fedora security)"

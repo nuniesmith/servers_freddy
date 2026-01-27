@@ -254,8 +254,6 @@ services:
         ports:
             - 13378:80
         volumes:
-            - ./services/audiobookshelf/config:/config
-            - ./services/audiobookshelf/metadata:/metadata
             - ${MEDIA_PATH_AUDIOBOOKS:-/media/audiobooks}:/audiobooks
         environment:
             - TZ=${TZ:-America/Toronto}

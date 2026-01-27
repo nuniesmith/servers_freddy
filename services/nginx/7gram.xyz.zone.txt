@@ -25,7 +25,6 @@ jellyfin	300	IN	A	100.121.199.80
 abs	300	IN	A	100.121.199.80
 
 ;; Sullivan Download Management
-qbt	300	IN	A	100.121.199.80
 jackett	300	IN	A	100.121.199.80
 sonarr	300	IN	A	100.121.199.80
 radarr	300	IN	A	100.121.199.80
@@ -47,9 +46,4 @@ grocy	300	IN	A	100.121.199.80
 photo	300	IN	A	100.121.199.80
 nc	300	IN	A	100.121.199.80
 home	300	IN	A	100.121.199.80
-
-;; Sync Services (All Machines)
-sync-sullivan	120	IN	A	100.121.199.80
-sync-desktop	120	IN	A	100.121.199.80
-sync-freddy	120	IN	A	100.121.199.80
-sync-oryx	120	IN	A	100.121.199.80
+qbt	300	IN	A	100.121.199.80

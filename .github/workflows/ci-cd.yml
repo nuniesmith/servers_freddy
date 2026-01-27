@@ -107,7 +107,7 @@ jobs:
                         {"name": "nc.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "photo.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "home.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
-                        {"name": "audiobook.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "abs.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "freddy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
                       ]
 
@@ -131,7 +131,7 @@ jobs:
                         {"name": "radarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "lidarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "jackett.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
-                        {"name": "qbittorrent.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "qbt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "calibre.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "yt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "filebot.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
