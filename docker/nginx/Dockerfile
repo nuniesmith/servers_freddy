@@ -29,7 +29,8 @@ RUN mkdir -p /etc/nginx/conf.d \
     /var/cache/nginx
 
 # Copy nginx configuration files
-COPY services/nginx/conf.d/ /etc/nginx/conf.d/
+COPY ../services/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY ../services/nginx/conf.d/ /etc/nginx/conf.d/
 
 # Generate self-signed fallback certificate for initial startup
 # This allows nginx to start before Let's Encrypt certs are available

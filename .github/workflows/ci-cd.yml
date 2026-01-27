@@ -212,6 +212,7 @@ jobs:
                           git checkout -f ${{ github.ref_name }}
                           git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
                         else
+                          rm -rf ${{ env.PROJECT_PATH }}
                           echo "📥 First deployment - cloning repository..."
                           mkdir -p $(dirname ${{ env.PROJECT_PATH }})
                           git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
