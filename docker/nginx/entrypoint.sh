@@ -14,37 +14,24 @@ set +e
 echo "=== Freddy Nginx Initialization ==="
 
 DOMAIN="${SSL_DOMAIN:-7gram.xyz}"
-CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
-FALLBACK_DIR="/etc/nginx/ssl/fallback"
+TARGET_DIR="/etc/nginx/ssl"
+FALLBACK_DIR="$TARGET_DIR/fallback"
 
-# Ensure cert directory exists
-mkdir -p "$CERT_DIR" 2>/dev/null || true
+# Ensure cert directory exists (for LE)
+mkdir -p "/etc/letsencrypt/live/$DOMAIN" 2>/dev/null || true
 
 # Check if real Let's Encrypt certificates exist in the volume
 if [ -f "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" ] && \
    [ -f "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" ]; then
     echo "✓ Found Let's Encrypt certificates for $DOMAIN"
 
-    # Update symlinks to point to real certs
-    # Force remove existing files/symlinks (handles both files and symlinks)
-    for cert_file in fullchain.pem privkey.pem chain.pem cert.pem; do
-        target="$CERT_DIR/$cert_file"
-        if [ -e "$target" ] || [ -L "$target" ]; then
-            rm -f "$target" 2>/dev/null || true
-        fi
-    done
+    # Copy LE certs to target dir
+    cp "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" "$TARGET_DIR/fullchain.pem"
+    cp "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" "$TARGET_DIR/privkey.pem"
 
-    # Create new symlinks with force flag
-    ln -sf "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem" 2>/dev/null || \
-        cp "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem"
-    ln -sf "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem" 2>/dev/null || \
-        cp "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem"
-
-    # Also link chain.pem and cert.pem if they exist
-    [ -f "/etc/letsencrypt-volume/live/$DOMAIN/chain.pem" ] && \
-        (ln -sf "/etc/letsencrypt-volume/live/$DOMAIN/chain.pem" "$CERT_DIR/chain.pem" 2>/dev/null || true)
-    [ -f "/etc/letsencrypt-volume/live/$DOMAIN/cert.pem" ] && \
-        (ln -sf "/etc/letsencrypt-volume/live/$DOMAIN/cert.pem" "$CERT_DIR/cert.pem" 2>/dev/null || true)
+    chmod 644 "$TARGET_DIR/fullchain.pem"
+    chmod 600 "$TARGET_DIR/privkey.pem"
+    chown nginx:nginx "$TARGET_DIR/fullchain.pem" "$TARGET_DIR/privkey.pem"
 
     echo "✓ SSL certificates configured for production"
 else
@@ -52,18 +39,15 @@ else
     echo "  Using self-signed fallback certificates"
     echo "  To get real certificates, run: ./run.sh ssl-init"
 
-    # Ensure fallback certs are linked
-    for cert_file in fullchain.pem privkey.pem; do
-        target="$CERT_DIR/$cert_file"
-        if [ -e "$target" ] || [ -L "$target" ]; then
-            rm -f "$target" 2>/dev/null || true
-        fi
-    done
+    # Copy fallback certs to target dir
+    cp "$FALLBACK_DIR/fullchain.pem" "$TARGET_DIR/fullchain.pem"
+    cp "$FALLBACK_DIR/privkey.pem" "$TARGET_DIR/privkey.pem"
 
-    ln -sf "$FALLBACK_DIR/fullchain.pem" "$CERT_DIR/fullchain.pem" 2>/dev/null || \
-        cp "$FALLBACK_DIR/fullchain.pem" "$CERT_DIR/fullchain.pem"
-    ln -sf "$FALLBACK_DIR/privkey.pem" "$CERT_DIR/privkey.pem" 2>/dev/null || \
-        cp "$FALLBACK_DIR/privkey.pem" "$CERT_DIR/privkey.pem"
+    chmod 644 "$TARGET_DIR/fullchain.pem"
+    chmod 600 "$TARGET_DIR/privkey.pem"
+    chown nginx:nginx "$TARGET_DIR/fullchain.pem" "$TARGET_DIR/privkey.pem"
+
+    echo "Copied fallback certs: $(ls -la $TARGET_DIR/*.pem)"
 fi
 
 # Re-enable exit on error for nginx validation
