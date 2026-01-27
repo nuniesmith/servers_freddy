@@ -29,7 +29,6 @@ RUN mkdir -p /etc/nginx/conf.d \
     /var/cache/nginx
 
 # Copy nginx configuration files
-COPY services/nginx/nginx.prod.conf /etc/nginx/nginx.conf
 COPY services/nginx/conf.d/ /etc/nginx/conf.d/
 
 # Generate self-signed fallback certificate for initial startup
