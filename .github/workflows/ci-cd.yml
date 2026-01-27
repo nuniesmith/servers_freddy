@@ -212,7 +212,7 @@ jobs:
                           git checkout -f ${{ github.ref_name }}
                           git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
                         else
-                          rm -rf ${{ env.PROJECT_PATH }}
+                          sudo rm -rf ${{ env.PROJECT_PATH }}
                           echo "📥 First deployment - cloning repository..."
                           mkdir -p $(dirname ${{ env.PROJECT_PATH }})
                           git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
@@ -258,8 +258,8 @@ jobs:
                         ./run.sh prod start
                       else
                         echo "⚠️ run.sh not found, using docker compose directly"
-                        docker compose pull --ignore-pull-failures
-                        docker compose up -d --remove-orphans
+                        sudo docker compose pull --ignore-pull-failures
+                        sudo docker compose up -d --remove-orphans
                       fi
 
                   post-deploy-command: |
