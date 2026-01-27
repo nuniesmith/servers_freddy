@@ -202,29 +202,17 @@ jobs:
                       echo "🏠 Deploying to Freddy server..."
 
                       # Handle git repository setup
-                      if [ ! -d "${{ env.PROJECT_PATH }}/.git" ]; then
-                        if [ -d "${{ env.PROJECT_PATH }}" ]; then
-                          echo "📁 Directory exists but is not a git repo - initializing..."
-                          cd ${{ env.PROJECT_PATH }}
-                          git init
-                          git remote add origin https://github.com/${{ github.repository }}.git
-                          git fetch origin
-                          git checkout -f ${{ github.ref_name }}
-                          git branch --set-upstream-to=origin/${{ github.ref_name }} ${{ github.ref_name }}
-                        else
-                          sudo rm -rf ${{ env.PROJECT_PATH }}
-                          echo "📥 First deployment - cloning repository..."
-                          mkdir -p $(dirname ${{ env.PROJECT_PATH }})
-                          git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
-                          cd ${{ env.PROJECT_PATH }}
-                          git checkout ${{ github.ref_name }}
-                        fi
-                      else
-                        cd ${{ env.PROJECT_PATH }}
-                        echo "📥 Pulling latest changes..."
+                      cd ${{ env.PROJECT_PATH }}
+                      if [ -d .git ]; then
+                        echo "📥 Updating existing repo..."
                         git fetch origin
                         git checkout ${{ github.ref_name }}
-                        git pull origin ${{ github.ref_name }}
+                        git reset --hard HEAD
+                        git clean -fdx
+                      else
+                        echo "📥 First deployment - cloning repository..."
+                        rm -rf * .git* 2>/dev/null || true
+                        git clone https://github.com/${{ github.repository }}.git . --branch ${{ github.ref_name }}
                       fi
 
                       # Ensure run.sh is executable
@@ -258,8 +246,8 @@ jobs:
                         ./run.sh prod start
                       else
                         echo "⚠️ run.sh not found, using docker compose directly"
-                        sudo docker compose pull --ignore-pull-failures
-                        sudo docker compose up -d --remove-orphans
+                        docker compose pull --ignore-pull-failures
+                        docker compose up -d --remove-orphans
                       fi
 
                   post-deploy-command: |
