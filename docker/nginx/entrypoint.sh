@@ -39,6 +39,9 @@ else
     echo "  Using self-signed fallback certificates"
     echo "  To get real certificates, run: ./run.sh ssl-init"
 
+    echo "Fallback dir: $FALLBACK_DIR $(ls -la $FALLBACK_DIR 2>/dev/null || echo 'no files')"
+    echo "Target dir: $TARGET_DIR $(ls -la $TARGET_DIR 2>/dev/null || echo 'no dir')"
+
     # Copy fallback certs to target dir
     cp "$FALLBACK_DIR/fullchain.pem" "$TARGET_DIR/fullchain.pem"
     cp "$FALLBACK_DIR/privkey.pem" "$TARGET_DIR/privkey.pem"
@@ -47,7 +50,7 @@ else
     chmod 600 "$TARGET_DIR/privkey.pem"
     chown nginx:nginx "$TARGET_DIR/fullchain.pem" "$TARGET_DIR/privkey.pem"
 
-    echo "Copied fallback certs: $(ls -la $TARGET_DIR/*.pem)"
+    echo "Copied to $TARGET_DIR: $(ls -la $TARGET_DIR/*.pem 2>/dev/null || echo 'no files')"
 fi
 
 # Re-enable exit on error for nginx validation
