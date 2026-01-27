@@ -203,7 +203,7 @@ jobs:
 
                       # Handle git repository setup
                       cd ${{ env.PROJECT_PATH }}
-                      if [ -d .git ]; then
+                      if git status >/dev/null 2>&1; then
                         echo "📥 Updating existing repo..."
                         git fetch origin
                         git checkout ${{ github.ref_name }}
@@ -211,8 +211,12 @@ jobs:
                         git clean -fdx
                       else
                         echo "📥 First deployment - cloning repository..."
-                        rm -rf * .git* 2>/dev/null || true
-                        git clone https://github.com/${{ github.repository }}.git . --branch ${{ github.ref_name }}
+                        cd ..
+                        rm -rf ${{ env.PROJECT_PATH }}
+                        mkdir -p ${{ env.PROJECT_PATH }}
+                        git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
+                        cd ${{ env.PROJECT_PATH }}
+                        git checkout ${{ github.ref_name }}
                       fi
 
                       # Ensure run.sh is executable
