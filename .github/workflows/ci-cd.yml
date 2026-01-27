@@ -201,10 +201,17 @@ jobs:
                   pre-deploy-command: |
                       echo "🏠 Deploying to Freddy server..."
 
+                      # Stop existing services to release file locks
+                      echo "🛑 Stopping existing services to release file locks..."
+                      if [ -d "${{ env.PROJECT_PATH }}" ]; then
+                        cd ${{ env.PROJECT_PATH }} && ( ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true ); cd ..
+                      fi
+
                       # Handle git repository setup
                       cd ${{ env.PROJECT_PATH }}
                       if git status >/dev/null 2>&1; then
                         echo "📥 Updating existing repo..."
+                        ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
                         git fetch origin
                         git checkout ${{ github.ref_name }}
                         git reset --hard HEAD
