@@ -43,14 +43,22 @@ else
     echo "Target dir: $TARGET_DIR $(ls -la $TARGET_DIR 2>/dev/null || echo 'no dir')"
 
     # Copy fallback certs to target dir
+    echo "Running cp..."
     cp "$FALLBACK_DIR/fullchain.pem" "$TARGET_DIR/fullchain.pem"
     cp "$FALLBACK_DIR/privkey.pem" "$TARGET_DIR/privkey.pem"
+    echo "cp exit code: $?"
+    echo "ls after cp: $(ls -la $TARGET_DIR/*.pem 2>/dev/null || echo 'no')"
+
+    echo "Running chmod/chown..."
+    chmod 644 "$TARGET_DIR/fullchain.pem"
+    chmod 600 "$TARGET_DIR/privkey.pem"
+    chown nginx:nginx "$TARGET_DIR/fullchain.pem" "$TARGET_DIR/privkey.pem"
 
     chmod 644 "$TARGET_DIR/fullchain.pem"
     chmod 600 "$TARGET_DIR/privkey.pem"
     chown nginx:nginx "$TARGET_DIR/fullchain.pem" "$TARGET_DIR/privkey.pem"
 
-    echo "Copied to $TARGET_DIR: $(ls -la $TARGET_DIR/*.pem 2>/dev/null || echo 'no files')"
+    echo "Entry finished"
 fi
 
 # Re-enable exit on error for nginx validation
