@@ -66,15 +66,12 @@ services:
 
     # nginx reverse proxy
     nginx:
-        image: nginx:latest
+        build:
+            context: .
+            dockerfile: ./docker/nginx/Dockerfile
         container_name: nginx
         environment:
             - TZ=${TZ:-America/Toronto}
-        volumes:
-            - ./services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-            - ./services/nginx/conf.d:/etc/nginx/conf.d:ro
-            - ./services/nginx/html:/dashboard:ro
-            - /opt/ssl/7gram.xyz:/etc/nginx/ssl:ro
         ports:
             - "80:80"
             - "443:443"
