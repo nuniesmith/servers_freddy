@@ -358,35 +358,60 @@ cmd_ssl_renew() {
 
     CERT_DIR="/opt/ssl/7gram.xyz"
     DOMAIN="7gram.xyz"
+    LETSENCRYPT_DIR="/etc/letsencrypt/live/$DOMAIN"
 
-    if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
-        print_warning "No certificates found. Run './run.sh ssl-init' first."
+    # Check if certificates exist locally
+    if [ ! -f "$CERT_DIR/fullchain.pem" ] || [ ! -f "$CERT_DIR/privkey.pem" ]; then
+        print_warning "No certificates found in $CERT_DIR. Run './run.sh ssl-init' first."
         return 1
     fi
 
-    print_info "Renewing certificates..."
+    # Check if cert is Let's Encrypt
+    if ! openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -issuer 2>/dev/null | grep -q "Let's Encrypt"; then
+        print_warning "Certificate is not from Let's Encrypt. Run './run.sh ssl-init' to get LE certs."
+        return 1
+    fi
+
+    # Check expiration (only renew if expires within 30 days)
+    if ! openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -checkend $((30*24*60*60)) >/dev/null 2>&1; then
+        print_info "Certificate expires in more than 30 days. No renewal needed."
+        return 0
+    fi
+
+    print_info "Certificate expires soon. Renewing..."
 
     if sudo certbot renew --quiet; then
-        print_info "Copying renewed certificates..."
+        # Check if renewal actually created new files
+        if [ -f "$LETSENCRYPT_DIR/fullchain.pem" ] && [ -f "$LETSENCRYPT_DIR/privkey.pem" ]; then
+            print_info "Copying renewed certificates..."
 
-        # Copy renewed certificates
-        sudo cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/"
-        sudo cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/"
+            # Copy renewed certificates
+            if sudo cp "$LETSENCRYPT_DIR/fullchain.pem" "$CERT_DIR/" && \
+               sudo cp "$LETSENCRYPT_DIR/privkey.pem" "$CERT_DIR/"; then
 
-        # Set permissions
-        sudo chmod 644 "$CERT_DIR/fullchain.pem"
-        sudo chmod 600 "$CERT_DIR/privkey.pem"
+                # Set permissions
+                sudo chmod 644 "$CERT_DIR/fullchain.pem"
+                sudo chmod 600 "$CERT_DIR/privkey.pem"
 
-        print_success "SSL certificates renewed"
+                print_success "SSL certificates renewed"
 
-        # Reload nginx if running
-        if docker ps | grep -q nginx; then
-            print_info "Reloading nginx..."
-            docker compose exec -T nginx nginx -s reload 2>/dev/null || print_warning "Could not reload nginx"
+                # Reload nginx if running
+                if docker ps | grep -q nginx; then
+                    print_info "Reloading nginx..."
+                    docker compose exec -T nginx nginx -s reload 2>/dev/null || print_warning "Could not reload nginx"
+                fi
+
+            else
+                print_error "Failed to copy renewed certificates"
+                return 1
+            fi
+        else
+            print_warning "Certbot renew completed but no renewed certificates found"
+            print_info "Certificates may not need renewal yet"
         fi
-
     else
-        print_error "SSL renewal failed"
+        print_error "Certbot renew failed"
+        print_info "Check certbot logs: sudo certbot certificates"
         return 1
     fi
 }
