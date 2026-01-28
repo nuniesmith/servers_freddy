@@ -346,6 +346,17 @@ EOF
 
     print_info "Generating wildcard SSL certificate for $DOMAIN..."
 
+    # Install certbot if needed
+    if ! command -v certbot >/dev/null 2>&1; then
+        print_info "Installing certbot..."
+        sudo apt update
+        sudo apt install -y certbot python3-pip
+    fi
+    if ! certbot plugins 2>/dev/null | grep -q dns-cloudflare; then
+        print_info "Installing certbot dns-cloudflare plugin..."
+        sudo apt install -y python3-certbot-dns-cloudflare
+    fi
+
     # Generate certificate (force renewal if already exists)
     CERTBOT_ARGS=""
     if [ "$force" = "--force" ]; then
@@ -355,7 +366,6 @@ EOF
     if sudo certbot certonly \
         --dns-cloudflare \
         --dns-cloudflare-credentials "$CRED_FILE" \
-        --dns-cloudflare-propagation-seconds 60 \
         $CERTBOT_ARGS \
         -d "$DOMAIN" \
         -d "*.$DOMAIN" \
