@@ -22,13 +22,13 @@ FALLBACK_DIR="$TARGET_DIR/fallback"
 mkdir -p "/etc/letsencrypt/live/$DOMAIN" 2>/dev/null || true
 
 # Check if real Let's Encrypt certificates exist in the volume
-if [ -f "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" ] && \
-   [ -f "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" ]; then
+if [ -f "/etc/letsencrypt-volume/fullchain.pem" ] && \
+   [ -f "/etc/letsencrypt-volume/privkey.pem" ]; then
     echo "✓ Found Let's Encrypt certificates for $DOMAIN"
 
     # Copy LE certs to target dir
-    cp "/etc/letsencrypt-volume/live/$DOMAIN/fullchain.pem" "$TARGET_DIR/fullchain.pem"
-    cp "/etc/letsencrypt-volume/live/$DOMAIN/privkey.pem" "$TARGET_DIR/privkey.pem"
+    cp "/etc/letsencrypt-volume/fullchain.pem" "$TARGET_DIR/fullchain.pem"
+    cp "/etc/letsencrypt-volume/privkey.pem" "$TARGET_DIR/privkey.pem"
 
     chmod 644 "$TARGET_DIR/fullchain.pem"
     chmod 600 "$TARGET_DIR/privkey.pem"

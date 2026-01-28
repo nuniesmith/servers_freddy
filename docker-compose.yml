@@ -73,7 +73,7 @@ services:
         environment:
             - TZ=${TZ:-America/Toronto}
         volumes:
-            - /opt/ssl/7gram.xyz:/etc/letsencrypt-volume/live/7gram.xyz:ro
+            - /opt/ssl/7gram.xyz:/etc/letsencrypt-volume:ro
         ports:
             - "80:80"
             - "443:443"
