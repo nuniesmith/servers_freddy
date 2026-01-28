@@ -10,6 +10,7 @@
 
 # Don't exit on error - we want to continue even if symlinks fail
 set +e
+set -x
 
 echo "=== Freddy Nginx Initialization ==="
 
