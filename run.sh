@@ -110,6 +110,10 @@ cmd_start() {
         print_info "Pulling latest images..."
         $DC -f "$COMPOSE_FILE" pull --ignore-pull-failures 2>&1 || true
         print_success "Images pulled"
+
+        print_info "Building custom images..."
+        $DC -f "$COMPOSE_FILE" build --parallel 2>&1 || true
+        print_success "Images built"
     fi
 
     # Start services
