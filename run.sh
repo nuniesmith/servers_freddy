@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 
+#
 # ============================================================================
 # FREDDY - Personal & Authentication Services Management Script
 # ============================================================================
@@ -284,6 +284,113 @@ cmd_update() {
     cmd_status
 }
 
+cmd_ssl_init() {
+    print_header "🔐 Initializing SSL Certificates"
+
+    # Certificate directory
+    CERT_DIR="/opt/ssl/7gram.xyz"
+    DOMAIN="7gram.xyz"
+
+    # Create directory
+    sudo mkdir -p "$CERT_DIR" 2>/dev/null || true
+
+    # Check if certs already exist
+    if [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
+        print_warning "SSL certificates already exist"
+        print_info "Run './run.sh ssl-renew' to renew instead"
+        return 0
+    fi
+
+    print_info "Setting up Cloudflare DNS credentials..."
+
+    # Prompt for credentials
+    read -p "Cloudflare Email: " CF_EMAIL
+    read -p "Cloudflare Global API Key: " CF_API_KEY
+    read -p "Your Email Address: " EMAIL
+
+    # Create Cloudflare credentials
+    sudo tee /etc/letsencrypt/cloudflare.ini > /dev/null <<EOF
+# Cloudflare API credentials
+dns_cloudflare_email = $CF_EMAIL
+dns_cloudflare_api_key = $CF_API_KEY
+EOF
+    sudo chmod 600 /etc/letsencrypt/cloudflare.ini
+
+    print_info "Generating wildcard SSL certificate for $DOMAIN..."
+
+    # Generate certificate
+    if sudo certbot certonly \
+        --dns-cloudflare \
+        --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+        --dns-cloudflare-propagation-seconds 60 \
+        -d "$DOMAIN" \
+        -d "*.$DOMAIN" \
+        --agree-tos \
+        --email "$EMAIL" \
+        --non-interactive; then
+
+        print_info "Copying certificates to $CERT_DIR..."
+
+        # Copy certificates
+        sudo cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/"
+        sudo cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/"
+
+        # Set permissions
+        sudo chmod 644 "$CERT_DIR/fullchain.pem"
+        sudo chmod 600 "$CERT_DIR/privkey.pem"
+
+        print_success "SSL certificates initialized"
+
+        # Reload nginx if running
+        if docker ps | grep -q nginx; then
+            print_info "Reloading nginx..."
+            docker compose exec -T nginx nginx -s reload 2>/dev/null || print_warning "Could not reload nginx"
+        fi
+
+    else
+        print_error "SSL certificate generation failed"
+        return 1
+    fi
+}
+
+cmd_ssl_renew() {
+    print_header "🔄 Renewing SSL Certificates"
+
+    CERT_DIR="/opt/ssl/7gram.xyz"
+    DOMAIN="7gram.xyz"
+
+    if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
+        print_warning "No certificates found. Run './run.sh ssl-init' first."
+        return 1
+    fi
+
+    print_info "Renewing certificates..."
+
+    if sudo certbot renew --quiet; then
+        print_info "Copying renewed certificates..."
+
+        # Copy renewed certificates
+        sudo cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/"
+        sudo cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/"
+
+        # Set permissions
+        sudo chmod 644 "$CERT_DIR/fullchain.pem"
+        sudo chmod 600 "$CERT_DIR/privkey.pem"
+
+        print_success "SSL certificates renewed"
+
+        # Reload nginx if running
+        if docker ps | grep -q nginx; then
+            print_info "Reloading nginx..."
+            docker compose exec -T nginx nginx -s reload 2>/dev/null || print_warning "Could not reload nginx"
+        fi
+
+    else
+        print_error "SSL renewal failed"
+        return 1
+    fi
+}
+
 show_usage() {
     cat << EOF
 🏠 Freddy - Personal & Authentication Services Manager
@@ -301,6 +408,8 @@ Commands:
   clean             Clean up unused Docker resources
   shell <service>   Open shell in a container
   update            Pull images and recreate containers
+  ssl-init          Initialize SSL certificates with Let's Encrypt
+  ssl-renew         Renew SSL certificates
   help              Show this help message
 
 Modes:
@@ -398,6 +507,12 @@ main() {
             ;;
         update|upgrade)
             cmd_update
+            ;;
+        ssl-init|ssl)
+            cmd_ssl_init
+            ;;
+        ssl-renew|renew)
+            cmd_ssl_renew
             ;;
         help|--help|-h)
             show_usage
