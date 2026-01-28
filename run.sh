@@ -285,6 +285,7 @@ cmd_update() {
 }
 
 cmd_ssl_init() {
+    local force=$1
     print_header "🔐 Initializing SSL Certificates"
 
     # Certificate directory
@@ -294,35 +295,68 @@ cmd_ssl_init() {
     # Create directory
     sudo mkdir -p "$CERT_DIR" 2>/dev/null || true
 
-    # Check if certs already exist
+    # Check if certs already exist and are valid LE certs
     if [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
-        print_warning "SSL certificates already exist"
-        print_info "Run './run.sh ssl-renew' to renew instead"
-        return 0
+        # Check if it's a Let's Encrypt cert
+        if openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -issuer 2>/dev/null | grep -q "Let's Encrypt"; then
+            # Check if expires within 30 days
+            if openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -checkend $((30*24*60*60)) >/dev/null 2>&1; then
+                # Expires within 30 days, need new cert
+                print_info "Existing LE certificate expires soon. Regenerating..."
+            else
+                # Valid LE cert, skip unless --force
+                if [ "$force" != "--force" ]; then
+                    print_warning "Valid Let's Encrypt certificates already exist"
+                    print_info "Run './run.sh ssl-init --force' to force regeneration or './run.sh ssl-renew' for renewal"
+                    return 0
+                else
+                    print_info "Force regenerating certificates..."
+                fi
+            fi
+        else
+            print_warning "Existing certificate is not from Let's Encrypt. Regenerating with LE..."
+        fi
     fi
 
-    print_info "Setting up Cloudflare DNS credentials..."
+    # Check if Cloudflare creds exist
+    CRED_FILE="/etc/letsencrypt/cloudflare.ini"
+    if [ ! -f "$CRED_FILE" ]; then
+        print_info "Setting up Cloudflare DNS credentials..."
 
-    # Prompt for credentials
-    read -p "Cloudflare Email: " CF_EMAIL
-    read -p "Cloudflare Global API Key: " CF_API_KEY
-    read -p "Your Email Address: " EMAIL
+        # Prompt for credentials
+        read -p "Cloudflare Email: " CF_EMAIL
+        read -p "Cloudflare Global API Key: " CF_API_KEY
+        read -p "Your Email Address: " EMAIL
 
-    # Create Cloudflare credentials
-    sudo tee /etc/letsencrypt/cloudflare.ini > /dev/null <<EOF
+        # Create Cloudflare credentials
+        sudo tee "$CRED_FILE" > /dev/null <<EOF
 # Cloudflare API credentials
 dns_cloudflare_email = $CF_EMAIL
 dns_cloudflare_api_key = $CF_API_KEY
 EOF
-    sudo chmod 600 /etc/letsencrypt/cloudflare.ini
+        sudo chmod 600 "$CRED_FILE"
+    else
+        print_info "Using existing Cloudflare credentials"
+        # Extract email from creds file
+        EMAIL=$(grep "dns_cloudflare_email" "$CRED_FILE" | cut -d'=' -f2 | tr -d ' ')
+        if [ -z "$EMAIL" ]; then
+            EMAIL="noreply@7gram.xyz"  # fallback
+        fi
+    fi
 
     print_info "Generating wildcard SSL certificate for $DOMAIN..."
 
-    # Generate certificate
+    # Generate certificate (force renewal if already exists)
+    CERTBOT_ARGS=""
+    if [ "$force" = "--force" ]; then
+        CERTBOT_ARGS="--force-renewal"
+    fi
+
     if sudo certbot certonly \
         --dns-cloudflare \
-        --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+        --dns-cloudflare-credentials "$CRED_FILE" \
         --dns-cloudflare-propagation-seconds 60 \
+        $CERTBOT_ARGS \
         -d "$DOMAIN" \
         -d "*.$DOMAIN" \
         --agree-tos \
@@ -433,7 +467,7 @@ Commands:
   clean             Clean up unused Docker resources
   shell <service>   Open shell in a container
   update            Pull images and recreate containers
-  ssl-init          Initialize SSL certificates with Let's Encrypt
+  ssl-init [--force] Initialize SSL certificates with Let's Encrypt
   ssl-renew         Renew SSL certificates
   help              Show this help message
 
@@ -534,7 +568,7 @@ main() {
             cmd_update
             ;;
         ssl-init|ssl)
-            cmd_ssl_init
+            cmd_ssl_init "$1"
             ;;
         ssl-renew|renew)
             cmd_ssl_renew
