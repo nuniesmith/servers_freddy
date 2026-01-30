@@ -36,6 +36,11 @@ on:
                 required: false
                 type: boolean
                 default: true
+            force_ssl_regen:
+                description: "Force SSL certificate regeneration (fixes corrupted certs)"
+                required: false
+                type: boolean
+                default: false
     schedule:
         # Run SSL renewal check weekly on Sundays at 3am UTC
         - cron: "0 3 * * 0"
@@ -161,7 +166,8 @@ jobs:
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch' ||
             github.event_name == 'push' ||
-            needs.dns-update.outputs.dns-updated == 'true'
+            needs.dns-update.outputs.dns-updated == 'true' ||
+            inputs.force_ssl_regen == true
 
         outputs:
             cert-ready: ${{ steps.certbot.outputs.cert-ready }}
@@ -179,6 +185,27 @@ jobs:
                   oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
                   target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
                   target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
+
+            - name: 🧹 Clean corrupted SSL certificates
+              if: inputs.force_ssl_regen == true
+              run: |
+                  echo "🧹 Forcing SSL certificate regeneration..."
+                  echo "Removing corrupted certificates from docker volume..."
+
+                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+
+                  # Stop nginx to release the volume
+                  docker stop nginx 2>/dev/null || true
+                  docker rm nginx 2>/dev/null || true
+
+                  # Remove the ssl-certs volume to force fresh generation
+                  docker volume rm ssl-certs 2>/dev/null || true
+
+                  echo "✅ Cleaned SSL volume, ready for fresh certificate generation"
+                  ENDSSH
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
 
             - name: 🔐 Generate SSL Certificates (Let's Encrypt + Cloudflare DNS)
               id: certbot
