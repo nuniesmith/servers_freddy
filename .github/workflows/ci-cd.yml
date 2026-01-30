@@ -298,15 +298,25 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Check SSL certificates in Docker volume
-                      echo "🔍 Checking SSL certs in Docker volume..."
-                      CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
+                      # Check SSL certificates on host
+                      echo "🔍 Checking SSL certificates..."
+                      if [ -f "${{ env.SSL_CERT_PATH }}/fullchain.pem" ] && [ -f "${{ env.SSL_CERT_PATH }}/privkey.pem" ]; then
+                        echo "✅ SSL certificates found at ${{ env.SSL_CERT_PATH }}"
+                        ls -lah ${{ env.SSL_CERT_PATH }}/ || true
 
-                      if [ "$CERT_EXISTS" = "yes" ]; then
-                        echo "✅ SSL certificates found in Docker volume"
-                        docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
+                        # Verify certificates match
+                        echo "🔍 Verifying certificate/key pair..."
+                        CERT_MOD=$(openssl x509 -noout -modulus -in ${{ env.SSL_CERT_PATH }}/fullchain.pem 2>/dev/null | openssl md5 | awk '{print $2}')
+                        KEY_MOD=$(openssl rsa -noout -modulus -in ${{ env.SSL_CERT_PATH }}/privkey.pem 2>/dev/null | openssl md5 | awk '{print $2}')
+
+                        if [ "$CERT_MOD" = "$KEY_MOD" ]; then
+                          echo "✅ Certificate and private key match"
+                        else
+                          echo "⚠️ WARNING: Certificate and private key DO NOT match!"
+                          echo "   This will cause nginx to fail. Run fix script after deployment."
+                        fi
                       else
-                        echo "⚠️ SSL certificates not found in Docker volume"
+                        echo "⚠️ SSL certificates not found at ${{ env.SSL_CERT_PATH }}"
                         echo "   They should have been generated in the ssl-generate job"
                       fi
 
@@ -337,6 +347,26 @@ jobs:
                       echo ""
                       echo "📊 Service Status:"
                       docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
+
+                      # Check nginx specifically
+                      echo ""
+                      echo "🔍 Nginx Status Check:"
+                      NGINX_STATUS=$(docker ps --filter "name=nginx" --format "{{.Status}}")
+                      if echo "$NGINX_STATUS" | grep -q "Up"; then
+                        if echo "$NGINX_STATUS" | grep -q "Restarting"; then
+                          echo "⚠️ WARNING: Nginx is restarting (likely SSL certificate issue)"
+                          echo "   Checking logs for errors..."
+                          docker logs --tail 30 nginx 2>&1 | grep -E "\[ERROR\]|\[WARN\]|Certificate|mismatch" || true
+                          echo ""
+                          echo "💡 To fix: Run 'sudo ~/freddy/scripts/fix-ssl-mismatch.sh' on the server"
+                        else
+                          echo "✅ Nginx is running healthy"
+                        fi
+                      else
+                        echo "❌ Nginx is not running"
+                        echo "   Last 20 log lines:"
+                        docker logs --tail 20 nginx 2>&1 || true
+                      fi
 
                       echo ""
                       echo "✅ Deployment complete!"
