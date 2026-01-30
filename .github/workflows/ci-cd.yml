@@ -189,20 +189,96 @@ jobs:
             - name: 🧹 Clean corrupted SSL certificates
               if: inputs.force_ssl_regen == true
               run: |
-                  echo "🧹 Forcing SSL certificate regeneration..."
-                  echo "Removing corrupted certificates from docker volume..."
+                  echo "🧹 Forcing comprehensive SSL certificate cleanup..."
+                  echo "This will remove ALL existing certificates and volumes"
 
                   ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
                     ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
-                  # Stop nginx to release the volume
+                  set -e
+                  echo "================================================"
+                  echo "  SSL CERTIFICATE CLEANUP"
+                  echo "================================================"
+
+                  # Stop all services to release volume locks
+                  echo "→ Stopping all services..."
+                  cd ~/freddy 2>/dev/null || true
+                  ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
+
+                  # Stop and remove nginx specifically
+                  echo "→ Removing nginx container..."
                   docker stop nginx 2>/dev/null || true
-                  docker rm nginx 2>/dev/null || true
+                  docker rm -f nginx 2>/dev/null || true
 
-                  # Remove the ssl-certs volume to force fresh generation
+                  # Remove ssl-certs Docker volume
+                  echo "→ Removing ssl-certs Docker volume..."
                   docker volume rm ssl-certs 2>/dev/null || true
+                  docker volume rm freddy_ssl-certs 2>/dev/null || true
 
-                  echo "✅ Cleaned SSL volume, ready for fresh certificate generation"
+                  # Clean host certificate directories
+                  echo "→ Cleaning host certificate directories..."
+                  sudo rm -rf /opt/ssl/7gram.xyz 2>/dev/null || true
+                  sudo rm -rf /etc/letsencrypt 2>/dev/null || true
+                  sudo rm -rf /opt/letsencrypt 2>/dev/null || true
+
+                  # Clean project certificate directories
+                  echo "→ Cleaning project certificate directories..."
+                  rm -rf ~/freddy/ssl/ 2>/dev/null || true
+                  rm -rf ~/freddy/certs/ 2>/dev/null || true
+                  rm -rf ~/freddy/nginx/ssl/ 2>/dev/null || true
+                  rm -rf ~/freddy/nginx/certs/ 2>/dev/null || true
+
+                  # Remove dangling volumes
+                  echo "→ Pruning dangling volumes..."
+                  docker volume prune -f 2>/dev/null || true
+
+                  # Remove any stopped containers
+                  echo "→ Pruning stopped containers..."
+                  docker container prune -f 2>/dev/null || true
+
+                  echo ""
+                  echo "✅ Complete cleanup finished"
+                  echo "   Ready for fresh SSL certificate generation"
+                  echo "================================================"
+                  ENDSSH
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
+
+            - name: 🔍 Verify clean slate before certificate generation
+              run: |
+                  echo "🔍 Verifying system is clean before SSL generation..."
+
+                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+
+                  echo "Checking for lingering SSL artifacts..."
+
+                  # Check for ssl-certs volume
+                  if docker volume inspect ssl-certs >/dev/null 2>&1; then
+                    echo "⚠️ WARNING: ssl-certs volume still exists!"
+                    docker volume rm ssl-certs || true
+                  else
+                    echo "✓ ssl-certs volume is clean"
+                  fi
+
+                  # Check for nginx container
+                  if docker ps -a --filter "name=nginx" --format '{{.Names}}' | grep -q "nginx"; then
+                    echo "⚠️ WARNING: nginx container still exists!"
+                    docker rm -f nginx || true
+                  else
+                    echo "✓ nginx container is clean"
+                  fi
+
+                  # Check host certificate directories
+                  if [ -d "/opt/ssl/7gram.xyz" ] || [ -d "/etc/letsencrypt" ]; then
+                    echo "⚠️ WARNING: Host certificate directories exist, cleaning..."
+                    sudo rm -rf /opt/ssl/7gram.xyz /etc/letsencrypt 2>/dev/null || true
+                  else
+                    echo "✓ Host directories are clean"
+                  fi
+
+                  echo ""
+                  echo "✅ Clean slate verified - ready for certificate generation"
                   ENDSSH
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
@@ -237,6 +313,71 @@ jobs:
                   echo "| Status | ${{ steps.certbot.outputs.cert-ready == 'true' && '✅ Ready' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
                   echo "| Type | \`${{ steps.certbot.outputs.cert-type }}\` |" >> $GITHUB_STEP_SUMMARY
                   echo "| Expires | ${{ steps.certbot.outputs.expiry-date }} |" >> $GITHUB_STEP_SUMMARY
+
+            - name: ✅ Post-generation certificate verification
+              if: steps.certbot.outputs.cert-ready == 'true'
+              run: |
+                  echo "✅ Verifying generated certificates are valid and properly deployed..."
+
+                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+
+                  echo "================================================"
+                  echo "  POST-GENERATION CERTIFICATE VERIFICATION"
+                  echo "================================================"
+
+                  # Check if ssl-certs volume exists
+                  if ! docker volume inspect ssl-certs >/dev/null 2>&1; then
+                    echo "❌ ERROR: ssl-certs volume not found!"
+                    exit 1
+                  fi
+                  echo "✓ ssl-certs volume exists"
+
+                  # Check certificate files exist in volume
+                  CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/fullchain.pem && echo "yes" || echo "no")
+                  KEY_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/privkey.pem && echo "yes" || echo "no")
+
+                  if [ "$CERT_EXISTS" != "yes" ] || [ "$KEY_EXISTS" != "yes" ]; then
+                    echo "❌ ERROR: Certificate files not found in volume!"
+                    exit 1
+                  fi
+                  echo "✓ Certificate files exist in volume"
+
+                  # List certificate files
+                  echo ""
+                  echo "Certificate files:"
+                  docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/7gram.xyz/
+
+                  # Verify certificate and private key match
+                  echo ""
+                  echo "Verifying certificate/key pair match..."
+                  CERT_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -modulus -in /certs/live/7gram.xyz/fullchain.pem | openssl md5 2>/dev/null)
+                  KEY_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl rsa -noout -modulus -in /certs/live/7gram.xyz/privkey.pem | openssl md5 2>/dev/null)
+
+                  echo "Certificate modulus: $CERT_MOD"
+                  echo "Private key modulus: $KEY_MOD"
+
+                  if [ "$CERT_MOD" = "$KEY_MOD" ] && [ -n "$CERT_MOD" ]; then
+                    echo "✅ Certificate and private key MATCH!"
+                  else
+                    echo "❌ ERROR: Certificate and private key DO NOT MATCH!"
+                    echo "   This indicates the certificate generation failed!"
+                    exit 1
+                  fi
+
+                  # Check certificate validity
+                  echo ""
+                  echo "Checking certificate validity..."
+                  docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -dates
+                  docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer
+
+                  echo ""
+                  echo "✅ All certificate verification checks PASSED!"
+                  echo "   Certificates are valid and ready for deployment"
+                  echo "================================================"
+                  ENDSSH
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
 
     # ==========================================================================
     # DEPLOYMENT
@@ -302,6 +443,42 @@ jobs:
                         cd ~
                       fi
 
+                      # ============================================================
+                      # COMPREHENSIVE SSL CERTIFICATE CLEANUP
+                      # ============================================================
+                      echo ""
+                      echo "🧹 Cleaning up old/corrupted SSL certificates..."
+
+                      # Stop and remove nginx container specifically
+                      echo "  → Stopping nginx container..."
+                      docker stop nginx 2>/dev/null || true
+                      docker rm -f nginx 2>/dev/null || true
+
+                      # Remove ssl-certs Docker volume (forces fresh cert generation)
+                      echo "  → Removing ssl-certs Docker volume..."
+                      docker volume rm ssl-certs 2>/dev/null || true
+
+                      # Clean any host-mounted certificate directories
+                      echo "  → Cleaning host certificate directories..."
+                      sudo rm -rf ${{ env.SSL_CERT_PATH }} 2>/dev/null || true
+                      sudo rm -rf /etc/letsencrypt 2>/dev/null || true
+                      sudo rm -rf /opt/letsencrypt 2>/dev/null || true
+
+                      # Clean project-level cert directories
+                      if [ -d "${{ env.PROJECT_PATH }}" ]; then
+                        cd ${{ env.PROJECT_PATH }}
+                        rm -rf ssl/ certs/ certificates/ .ssl/ 2>/dev/null || true
+                        rm -rf nginx/ssl/ nginx/certs/ 2>/dev/null || true
+                      fi
+
+                      # Remove any dangling certificate-related volumes
+                      echo "  → Removing dangling volumes..."
+                      docker volume prune -f 2>/dev/null || true
+
+                      echo "✅ SSL cleanup complete - ready for fresh certificates"
+                      echo ""
+                      # ============================================================
+
                       # Handle git repository setup
                       cd ${{ env.PROJECT_PATH }}
 
@@ -325,16 +502,30 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Check SSL certificates in Docker volume
-                      echo "🔍 Checking SSL certs in Docker volume..."
+                      # Verify SSL certificates are ready from ssl-generate job
+                      echo "🔍 Checking for fresh SSL certificates..."
                       CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
 
                       if [ "$CERT_EXISTS" = "yes" ]; then
-                        echo "✅ SSL certificates found in Docker volume"
+                        echo "✅ Fresh SSL certificates found in Docker volume"
                         docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
+
+                        # Verify certificate and key match
+                        echo "🔐 Verifying certificate/key pair..."
+                        CERT_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -modulus -in /certs/live/${{ env.DOMAIN }}/fullchain.pem | openssl md5 2>/dev/null || echo "cert-error")
+                        KEY_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl rsa -noout -modulus -in /certs/live/${{ env.DOMAIN }}/privkey.pem | openssl md5 2>/dev/null || echo "key-error")
+
+                        if [ "$CERT_MOD" = "$KEY_MOD" ] && [ "$CERT_MOD" != "cert-error" ]; then
+                          echo "✅ Certificate and private key match!"
+                        else
+                          echo "❌ ERROR: Certificate and key DO NOT match!"
+                          echo "   This should not happen after cleanup and regeneration"
+                          exit 1
+                        fi
                       else
                         echo "⚠️ SSL certificates not found in Docker volume"
                         echo "   They should have been generated in the ssl-generate job"
+                        echo "   Deployment will continue but nginx may fail to start"
                       fi
 
                       # Load environment variables
