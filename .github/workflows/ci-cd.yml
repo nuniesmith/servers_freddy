@@ -186,13 +186,48 @@ jobs:
                   target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
                   target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
 
+            - name: 🔌 Verify Tailscale connection
+              run: |
+                  echo "🔌 Testing Tailscale connection before SSL operations..."
+
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  # Test connection
+                  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_rsa \
+                    -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} \
+                    'echo "Connection successful"'; then
+                    echo "✅ Tailscale connection working"
+                  else
+                    echo "❌ Failed to connect via Tailscale"
+                    echo "Check that:"
+                    echo "  - Tailscale is running on Freddy"
+                    echo "  - SSH_KEY secret is correct"
+                    echo "  - FREDDY_TAILSCALE_IP is correct"
+                    rm -f ~/.ssh/id_rsa
+                    exit 1
+                  fi
+
+                  # Cleanup SSH key
+                  rm -f ~/.ssh/id_rsa
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
+
             - name: 🧹 Clean corrupted SSL certificates
               if: inputs.force_ssl_regen == true
               run: |
                   echo "🧹 Forcing comprehensive SSL certificate cleanup..."
                   echo "This will remove ALL existing certificates and volumes"
 
-                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
                     ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
                   set -e
@@ -241,6 +276,9 @@ jobs:
                   echo "   Ready for fresh SSL certificate generation"
                   echo "================================================"
                   ENDSSH
+
+                  # Cleanup SSH key
+                  rm -f ~/.ssh/id_rsa
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
 
@@ -248,7 +286,12 @@ jobs:
               run: |
                   echo "🔍 Verifying system is clean before SSL generation..."
 
-                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
                     ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
                   echo "Checking for lingering SSL artifacts..."
@@ -280,6 +323,9 @@ jobs:
                   echo ""
                   echo "✅ Clean slate verified - ready for certificate generation"
                   ENDSSH
+
+                  # Cleanup SSH key
+                  rm -f ~/.ssh/id_rsa
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
 
@@ -319,7 +365,12 @@ jobs:
               run: |
                   echo "✅ Verifying generated certificates are valid and properly deployed..."
 
-                  ssh -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT || '22' }} \
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
                     ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
                   echo "================================================"
@@ -376,8 +427,19 @@ jobs:
                   echo "   Certificates are valid and ready for deployment"
                   echo "================================================"
                   ENDSSH
+
+                  # Cleanup SSH key
+                  rm -f ~/.ssh/id_rsa
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
+
+            - name: ❌ Fail workflow if SSL generation failed
+              if: steps.certbot.outputs.cert-ready != 'true'
+              run: |
+                  echo "❌ SSL certificate generation FAILED!"
+                  echo "Cannot proceed with deployment without valid SSL certificates."
+                  echo "Check the certbot step logs for details."
+                  exit 1
 
     # ==========================================================================
     # DEPLOYMENT
@@ -389,6 +451,7 @@ jobs:
         needs: [dns-update, ssl-generate]
         if: |
             always() &&
+            needs.ssl-generate.result == 'success' &&
             (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
             (
                 github.event_name == 'push' ||
