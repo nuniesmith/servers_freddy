@@ -591,6 +591,41 @@ jobs:
                         echo "   Deployment will continue but nginx may fail to start"
                       fi
 
+                      # Copy SSL certificates from Docker volume to host directory
+                      echo ""
+                      echo "📋 Copying SSL certificates to host directory..."
+                      if [ "$CERT_EXISTS" = "yes" ]; then
+                        # Ensure target directory exists
+                        sudo mkdir -p ${{ env.SSL_CERT_PATH }}
+
+                        # Copy certificates from Docker volume to host
+                        echo "  → Extracting fullchain.pem..."
+                        docker run --rm -v ssl-certs:/certs:ro -v ${{ env.SSL_CERT_PATH }}:/target:rw busybox:latest cp /certs/live/${{ env.DOMAIN }}/fullchain.pem /target/fullchain.pem
+
+                        echo "  → Extracting privkey.pem..."
+                        docker run --rm -v ssl-certs:/certs:ro -v ${{ env.SSL_CERT_PATH }}:/target:rw busybox:latest cp /certs/live/${{ env.DOMAIN }}/privkey.pem /target/privkey.pem
+
+                        # Set proper permissions
+                        sudo chmod 644 ${{ env.SSL_CERT_PATH }}/fullchain.pem
+                        sudo chmod 600 ${{ env.SSL_CERT_PATH }}/privkey.pem
+
+                        # Verify the copied files
+                        echo "  → Verifying copied certificates..."
+                        COPIED_CERT_MOD=$(openssl x509 -noout -modulus -in ${{ env.SSL_CERT_PATH }}/fullchain.pem | openssl md5 2>/dev/null || echo "error")
+                        COPIED_KEY_MOD=$(openssl rsa -noout -modulus -in ${{ env.SSL_CERT_PATH }}/privkey.pem | openssl md5 2>/dev/null || echo "error")
+
+                        if [ "$COPIED_CERT_MOD" = "$COPIED_KEY_MOD" ] && [ "$COPIED_CERT_MOD" != "error" ]; then
+                          echo "✅ Certificates successfully copied to ${{ env.SSL_CERT_PATH }}"
+                          ls -lh ${{ env.SSL_CERT_PATH }}/
+                        else
+                          echo "❌ ERROR: Copied certificates don't match or are invalid!"
+                          exit 1
+                        fi
+                      else
+                        echo "⚠️ Skipping certificate copy - no certificates in Docker volume"
+                      fi
+                      echo ""
+
                       # Load environment variables
                       if [ -f .env ]; then
                         set -a && source .env && set +a
