@@ -1,185 +1,172 @@
-# =============================================================================
-# FKS Paper Trading Test Workflow
-# =============================================================================
-# Deploys and monitors a 48-hour paper trading soak test on the production server.
+# ============================================================================
+# CI/CD Pipeline for FREDDY - Personal & Authentication Services Server
+# ============================================================================
+# Personal home server running photos, cloud storage, home automation
+# Repository: nuniesmith/freddy
 #
-# ⚠️ IMPORTANT: RUNNER REQUIREMENTS
-# ----------------------------------
-# GitHub-hosted runners have a 6-hour maximum job timeout. This workflow uses
-# long sleep intervals in health check jobs that WILL FAIL on GitHub-hosted
-# runners for tests longer than ~5 hours.
-#
-# SOLUTIONS:
-# 1. Use a SELF-HOSTED RUNNER (recommended) - change `runs-on: ubuntu-latest`
-#    to `runs-on: self-hosted` in the health check and final-report jobs
-# 2. For shorter tests (≤5 hours), GitHub-hosted runners work fine
-# 3. See the generic `soak-test.yml` template for a restructured approach
+# Services: nginx, photoprism, nextcloud, homeassistant, audiobookshelf
 #
 # Features:
-# - Manual trigger with configurable options
-# - Paper trading mode (no real orders)
-# - Optimizer hot-reload testing
-# - Periodic health checks (1h, 6h, 24h checkpoints)
-# - Discord notifications for status updates
-# - Automatic log collection
-#
-# Usage:
-#   Trigger manually from GitHub Actions UI with desired options
-#
-# Required Secrets:
-# - PROD_SSH_KEY, PROD_SSH_USER, PROD_SSH_PORT
-# - PROD_TAILSCALE_IP (server's Tailscale IP, e.g., 100.x.x.x)
-# - TAILSCALE_OAUTH_CLIENT_ID, TAILSCALE_OAUTH_SECRET
-# - DOCKER_USERNAME, DOCKER_TOKEN (if rebuilding images)
-# - DISCORD_WEBHOOK_ACTIONS (optional, for notifications)
-# =============================================================================
+#   - Cloudflare DNS management (update A records to Tailscale IPs)
+#   - SSL certificate generation via Certbot with Cloudflare DNS challenge
+#   - Deployment via Tailscale + SSH
+# ============================================================================
 
-name: 🧪 Paper Trading Test
+name: 🏠 Freddy Deploy
 
 on:
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - "**.md"
+            - "docs/**"
+            - ".gitignore"
+    pull_request:
+        branches: [main]
     workflow_dispatch:
         inputs:
-            duration_hours:
-                description: "Test duration in hours"
-                required: false
-                type: choice
-                options:
-                    - "1"
-                    - "12"
-                    - "24"
-                    - "48"
-                    - "72"
-                    - "96"
-                    - "168"
-                    - "720"
-                default: "48"
-            assets:
-                description: "Assets to trade (comma-separated)"
-                required: false
-                type: string
-                default: "BTC,ETH,SOL,AVAX,LINK,MATIC,ARB,OP,DOGE,XRP"
-            optimize_interval:
-                description: "Optimization interval"
-                required: false
-                type: choice
-                options:
-                    - "1h"
-                    - "2h"
-                    - "4h"
-                    - "6h"
-                    - "12h"
-                default: "6h"
-            optimize_trials:
-                description: "Optimization trials per asset"
-                required: false
-                type: choice
-                options:
-                    - "20"
-                    - "50"
-                    - "100"
-                default: "50"
-
-            clean_volumes:
-                description: "Clean volumes before starting (fresh DB)"
+            skip_deploy:
+                description: "Skip deployment (test workflow only)"
                 required: false
                 type: boolean
                 default: false
-            run_initial_optimization:
-                description: "Run optimization immediately on start"
+            update_dns:
+                description: "Update Cloudflare DNS records"
                 required: false
                 type: boolean
                 default: true
+    schedule:
+        # Run SSL renewal check weekly on Sundays at 3am UTC
+        - cron: "0 3 * * 0"
 
 permissions:
     contents: read
-    actions: write
 
 env:
-    REGISTRY: docker.io
-    IMAGE_NAME: nuniesmith/fks
-    TEST_ID: "${{ inputs.duration_hours }}hr-${{ github.run_number }}-${{ github.run_attempt }}"
+    SERVER_NAME: freddy
+    PROJECT_PATH: ~/freddy
+    DOMAIN: 7gram.xyz
+    SSL_CERT_PATH: /opt/ssl/7gram.xyz
+
+    # Freddy DNS records (services hosted on freddy)
+    FREDDY_DNS_RECORDS: >-
+        7gram.xyz
+        *.7gram.xyz
+        nc.7gram.xyz
+        photo.7gram.xyz
+        home.7gram.xyz
+        audiobook.7gram.xyz
 
 concurrency:
-    group: paper-trading-test
-    cancel-in-progress: false # Don't cancel running tests
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+defaults:
+    run:
+        shell: bash
 
 jobs:
-    # ===========================================================================
-    # STAGE 1: SETUP AND VALIDATION
-    # ===========================================================================
-    setup:
-        name: 📋 Setup Test
+    # ==========================================================================
+    # CLOUDFLARE DNS UPDATE
+    # ==========================================================================
+    dns-update:
+        name: 🌐 Update Cloudflare DNS
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
+        if: |
+            github.event_name == 'workflow_dispatch' && inputs.update_dns ||
+            github.event_name == 'push' ||
+            github.event_name == 'schedule'
+
         outputs:
-            test_id: ${{ steps.config.outputs.test_id }}
-            start_time: ${{ steps.config.outputs.start_time }}
-            end_time: ${{ steps.config.outputs.end_time }}
-            duration_seconds: ${{ steps.config.outputs.duration_seconds }}
+            dns-updated: ${{ steps.dns-freddy.outputs.updated }}
+
         steps:
-            - name: 🎯 Configure test parameters
-              id: config
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            - name: 🌐 Update Freddy DNS Records
+              id: dns-freddy
+              uses: nuniesmith/actions/.github/actions/cloudflare-dns-update@main
+              with:
+                  api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+                  record-name: ${{ env.DOMAIN }}
+                  record-content: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  record-type: A
+                  ttl: "1"
+                  proxied: "false"
+                  additional-records: |
+                      [
+                        {"name": "nc.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "photo.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "home.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "abs.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "freddy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
+                      ]
+
+            - name: 🌐 Update Sullivan DNS Records (proxied via Freddy nginx)
+              id: dns-sullivan
+              uses: nuniesmith/actions/.github/actions/cloudflare-dns-update@main
+              with:
+                  api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  zone-id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+                  record-name: sullivan.7gram.xyz
+                  record-content: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  record-type: A
+                  ttl: "1"
+                  proxied: "false"
+                  additional-records: |
+                      [
+                        {"name": "jellyfin.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "emby.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "plex.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "sonarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "radarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "lidarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "jackett.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "qbt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "calibre.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "yt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "filebot.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "grocy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "mealie.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "wiki.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "duplicati.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
+                      ]
+
+            - name: 📋 DNS Update Summary
               run: |
-                  START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-                  DURATION_HOURS=${{ inputs.duration_hours }}
-                  DURATION_SECONDS=$((DURATION_HOURS * 3600))
-                  END_TIME=$(date -u -d "+${DURATION_HOURS} hours" +"%Y-%m-%dT%H:%M:%SZ")
+                  echo "## 🌐 DNS Update Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Target IP (Freddy Tailscale):** \`${{ secrets.FREDDY_TAILSCALE_IP }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "All DNS records for 7gram.xyz have been updated to point to the Freddy server." >> $GITHUB_STEP_SUMMARY
+                  echo "Freddy's nginx will reverse proxy Sullivan services over Tailscale." >> $GITHUB_STEP_SUMMARY
 
-                  echo "test_id=${{ env.TEST_ID }}" >> $GITHUB_OUTPUT
-                  echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
-                  echo "end_time=$END_TIME" >> $GITHUB_OUTPUT
-                  echo "duration_seconds=$DURATION_SECONDS" >> $GITHUB_OUTPUT
+    # ==========================================================================
+    # SSL CERTIFICATE MANAGEMENT
+    # ==========================================================================
 
-                  echo "╔══════════════════════════════════════════════════════════════╗"
-                  echo "║           48-HOUR PAPER TRADING TEST CONFIGURATION           ║"
-                  echo "╠══════════════════════════════════════════════════════════════╣"
-                  echo "║  Test ID:      ${{ env.TEST_ID }}"
-                  echo "║  Duration:     ${DURATION_HOURS} hours"
-                  echo "║  Assets:       ${{ inputs.assets }}"
-                  echo "║  Optimizer:    ${{ inputs.optimize_interval }} interval, ${{ inputs.optimize_trials }} trials"
-                  echo "║  Start:        $START_TIME"
-                  echo "║  End:          $END_TIME"
-                  echo "╚══════════════════════════════════════════════════════════════╝"
-
-            - name: 🔍 Validate secrets
-              env:
-                  HAS_SSH_KEY: ${{ secrets.PROD_SSH_KEY != '' }}
-                  HAS_TAILSCALE_IP: ${{ secrets.PROD_TAILSCALE_IP != '' }}
-                  HAS_TAILSCALE_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID != '' }}
-                  HAS_TAILSCALE_SECRET: ${{ secrets.TAILSCALE_OAUTH_SECRET != '' }}
-              run: |
-                  ERRORS=""
-
-                  if [ "$HAS_SSH_KEY" != "true" ]; then
-                    ERRORS="${ERRORS}\n  - PROD_SSH_KEY"
-                  fi
-                  if [ "$HAS_TAILSCALE_IP" != "true" ]; then
-                    ERRORS="${ERRORS}\n  - PROD_TAILSCALE_IP"
-                  fi
-                  if [ "$HAS_TAILSCALE_ID" != "true" ]; then
-                    ERRORS="${ERRORS}\n  - TAILSCALE_OAUTH_CLIENT_ID"
-                  fi
-                  if [ "$HAS_TAILSCALE_SECRET" != "true" ]; then
-                    ERRORS="${ERRORS}\n  - TAILSCALE_OAUTH_SECRET"
-                  fi
-
-                  if [ -n "$ERRORS" ]; then
-                    echo -e "❌ Missing required secrets:$ERRORS"
-                    exit 1
-                  fi
-                  echo "✅ All required secrets present"
-                  echo "🎯 Target host will use PROD_TAILSCALE_IP secret"
-
-    # ===========================================================================
-    # STAGE 2: DEPLOY AND START TEST
-    # ===========================================================================
-    deploy:
-        name: 🚀 Deploy Test
+    # ==========================================================================
+    # SSL CERTIFICATE GENERATION
+    # ==========================================================================
+    ssl-generate:
+        name: 🔐 Generate/Renew SSL Certificates
         runs-on: ubuntu-latest
-        timeout-minutes: 20
-        needs: setup
+        timeout-minutes: 15
+        needs: [dns-update]
+        if: |
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'push' ||
+            needs.dns-update.outputs.dns-updated == 'true'
+
         outputs:
-            deployed: ${{ steps.deploy.outputs.deployed }}
+            cert-ready: ${{ steps.certbot.outputs.cert-ready }}
+            cert-type: ${{ steps.certbot.outputs.cert-type }}
+
         steps:
             - name: 📥 Checkout code
               uses: actions/checkout@v4
@@ -190,297 +177,268 @@ jobs:
               with:
                   oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
                   oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
-                  target-ip: ${{ secrets.PROD_TAILSCALE_IP }}
-                  target-ssh-port: ${{ secrets.PROD_SSH_PORT || '22' }}
+                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
 
-            - name: 🚀 Deploy Paper Trading Test
+            - name: 🔐 Generate SSL Certificates (Let's Encrypt + Cloudflare DNS)
+              id: certbot
+              uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
+              with:
+                  domain: ${{ env.DOMAIN }}
+                  additional-domains: "*.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,audiobook.7gram.xyz,sullivan.7gram.xyz,*.sullivan.7gram.xyz"
+                  cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  email: ${{ secrets.SSL_EMAIL }}
+                  propagation-seconds: 60
+                  staging: false
+                  fallback-to-self-signed: true
+                  deploy-to-server: true
+                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
+                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  docker-volume-name: ssl-certs
+                  docker-username: ${{ secrets.DOCKER_USERNAME }}
+                  docker-token: ${{ secrets.DOCKER_TOKEN }}
+
+            - name: 📋 SSL Summary
+              run: |
+                  echo "## 🔐 SSL Certificates" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+                  echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+                  echo "| Domain | \`${{ env.DOMAIN }}\` |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Status | ${{ steps.certbot.outputs.cert-ready == 'true' && '✅ Ready' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Type | \`${{ steps.certbot.outputs.cert-type }}\` |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Expires | ${{ steps.certbot.outputs.expiry-date }} |" >> $GITHUB_STEP_SUMMARY
+
+    # ==========================================================================
+    # DEPLOYMENT
+    # ==========================================================================
+    deploy:
+        name: 🚀 Deploy to Freddy
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: [dns-update, ssl-generate]
+        if: |
+            always() &&
+            (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
+            (
+                github.event_name == 'push' ||
+                (github.event_name == 'workflow_dispatch' && !inputs.skip_deploy)
+            )
+
+        steps:
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            # ======================================================================
+            # TAILSCALE CONNECTION
+            # ======================================================================
+            - name: 🔌 Connect to Tailscale
+              id: tailscale
+              uses: nuniesmith/actions/.github/actions/tailscale-connect@main
+              with:
+                  oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+                  oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
+
+            # ======================================================================
+            # DEPLOY VIA SSH
+            # ======================================================================
+            - name: 🚀 Deploy via SSH
               id: deploy
+              if: steps.tailscale.outputs.connected == 'true'
               uses: nuniesmith/actions/.github/actions/ssh-deploy@main
               with:
-                  host: ${{ secrets.PROD_TAILSCALE_IP }}
-                  port: ${{ secrets.PROD_SSH_PORT || '22' }}
-                  username: ${{ secrets.PROD_SSH_USER || 'actions' }}
-                  ssh-key: ${{ secrets.PROD_SSH_KEY }}
-                  project-path: ~/fks
-                  git-pull: "true"
+                  host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  username: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  project-path: ${{ env.PROJECT_PATH }}
+                  git-pull: false
                   git-branch: ${{ github.ref_name }}
-                  docker-pull: "true"
+                  docker-pull: false
+                  docker-prune: false
                   pre-deploy-command: |
-                      echo "════════════════════════════════════════════════════════════"
-                      echo "🧪 PREPARING ${{ inputs.duration_hours }}-HOUR PAPER TRADING TEST"
-                      echo "════════════════════════════════════════════════════════════"
+                      echo "🏠 Deploying to Freddy server..."
 
-                      # System info
-                      echo "🖥️  Host: $(hostname) | $(date)"
-                      echo "💾 Disk: $(df -h / | tail -1 | awk '{print $4}') free | Memory: $(free -h | grep Mem | awk '{print $7}') available"
+                      # Create project directory if it doesn't exist
+                      echo "📁 Ensuring project directory exists..."
+                      mkdir -p ${{ env.PROJECT_PATH }}
 
-                      # Create test configuration
-                      TEST_DURATION="${{ inputs.duration_hours }}"
-                      TEST_ENV_FILE=".env.${TEST_DURATION}hr-test"
-                      cat > "$TEST_ENV_FILE" << 'ENVEOF'
-                      # ${{ inputs.duration_hours }}-Hour Paper Trading Test Configuration
-                      # Test ID: ${{ needs.setup.outputs.test_id }}
-                      # Generated: ${{ needs.setup.outputs.start_time }}
-
-                      # ============================================
-                      # TRADING MODE - SIMULATION (Paper Trading)
-                      # ============================================
-                      TRADING_MODE=simulation
-                      REAL_ORDERS_ENABLED=false
-
-                      # ============================================
-                      # Execution Service
-                      # ============================================
-                      ENABLE_EXECUTION=true
-                      EXECUTION_EXCHANGE=kraken
-                      BYBIT_TESTNET=true
-
-                      # ============================================
-                      # Risk Limits (Conservative for testing)
-                      # ============================================
-                      MAX_POSITION_SIZE=100
-                      MAX_DAILY_LOSS=50
-                      MAX_OPEN_ORDERS=5
-
-                      # ============================================
-                      # Optimizer Configuration
-                      # ============================================
-                      OPTIMIZER_ENABLED=true
-                      OPTIMIZE_INTERVAL=${{ inputs.optimize_interval }}
-                      OPTIMIZE_ASSETS=${{ inputs.assets }}
-                      OPTIMIZE_TRIALS=${{ inputs.optimize_trials }}
-                      OPTIMIZE_HISTORICAL_DAYS=14
-                      OPTIMIZER_INSTANCE_ID=${{ needs.setup.outputs.test_id }}
-
-                      # ============================================
-                      # Database
-                      # ============================================
-                      POSTGRES_USER=fks_user
-                      POSTGRES_DB=fks
-
-                      # ============================================
-                      # Test Metadata
-                      # ============================================
-                      TEST_ID=${{ needs.setup.outputs.test_id }}
-                      TEST_START_TIME=${{ needs.setup.outputs.start_time }}
-                      TEST_DURATION_HOURS=${{ inputs.duration_hours }}
-                      ENVEOF
-
-                      # Load existing .env passwords and append to test config file
-                      if [ -f .env ]; then
-                        # Extract only password lines from existing .env (avoid duplicates)
-                        grep -E "^(POSTGRES_PASSWORD|REDIS_PASSWORD|QUESTDB_PASSWORD|GRAFANA_PASSWORD)=" .env | head -4 >> "$TEST_ENV_FILE" 2>/dev/null || true
+                      # Stop existing services to release file locks
+                      echo "🛑 Stopping existing services..."
+                      if [ -d "${{ env.PROJECT_PATH }}" ]; then
+                        cd ${{ env.PROJECT_PATH }}
+                        ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
+                        cd ~
                       fi
 
-                      # Create test log directory
-                      NOW=$(date +%Y%m%d-%H%M%S | tr -d '\n')
-                      TEST_LOG_DIR="logs/${TEST_DURATION}hr-test-$NOW"
-                      mkdir -p "$TEST_LOG_DIR"
-                      echo "TEST_LOG_DIR=$TEST_LOG_DIR" >> "$TEST_ENV_FILE"
+                      # Handle git repository setup
+                      cd ${{ env.PROJECT_PATH }}
 
-                      echo "✅ Test configuration created at $TEST_ENV_FILE"
-                      echo "📄 Test env file contents:"
-                      wc -l "$TEST_ENV_FILE"
+                      if [ -d .git ] && git status >/dev/null 2>&1; then
+                        echo "📥 Updating existing repository..."
+                        git fetch origin
+                        git checkout ${{ github.ref_name }}
+                        git pull origin ${{ github.ref_name }} || {
+                          echo "⚠️ Git pull failed, doing hard reset..."
+                          git reset --hard origin/${{ github.ref_name }}
+                        }
+                      else
+                        echo "📥 Cloning repository (first deployment)..."
+                        cd ~
+                        rm -rf ${{ env.PROJECT_PATH }}
+                        git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
+                        cd ${{ env.PROJECT_PATH }}
+                        git checkout ${{ github.ref_name }}
+                      fi
+
+                      # Ensure run.sh is executable
+                      chmod +x ./run.sh 2>/dev/null || true
+
+                      # Check SSL certificates in Docker volume
+                      echo "🔍 Checking SSL certs in Docker volume..."
+                      CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
+
+                      if [ "$CERT_EXISTS" = "yes" ]; then
+                        echo "✅ SSL certificates found in Docker volume"
+                        docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
+                      else
+                        echo "⚠️ SSL certificates not found in Docker volume"
+                        echo "   They should have been generated in the ssl-generate job"
+                      fi
+
+                      # Load environment variables
+                      if [ -f .env ]; then
+                        set -a && source .env && set +a
+                        echo "✓ Environment loaded"
+                      fi
 
                   deploy-command: |
-                      echo "════════════════════════════════════════════════════════════"
-                      echo "🚀 STARTING ${{ inputs.duration_hours }}-HOUR PAPER TRADING TEST"
-                      echo "════════════════════════════════════════════════════════════"
+                      cd ${{ env.PROJECT_PATH }}
 
-                      # Docker login
-                      echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin docker.io || true
-
-                      # IMPORTANT: Use separate env files instead of appending to prevent duplication
-                      # Docker compose will merge both files, with later values taking precedence
-                      # Do NOT append .env.48hr-test to .env - this causes massive duplication!
-
-                      # Source both env files for shell commands
-                      TEST_DURATION="${{ inputs.duration_hours }}"
-                      TEST_ENV_FILE=".env.${TEST_DURATION}hr-test"
-                      set -a
-                      [ -f .env ] && source .env
-                      [ -f "$TEST_ENV_FILE" ] && source "$TEST_ENV_FILE"
-                      set +a
-
-                      # Define compose command with BOTH env files (test file takes precedence)
-                      COMPOSE_CMD="docker compose --env-file .env --env-file $TEST_ENV_FILE -f infrastructure/compose/docker-compose.yml -f infrastructure/compose/docker-compose.prod.yml"
-</text>
-
-<old_text line=340>
-                      # Start background log collection
-                      if [ -z "$TEST_LOG_DIR" ]; then
-                        TEST_LOG_DIR=$(grep TEST_LOG_DIR .env.48hr-test 2>/dev/null | tail -1 | cut -d= -f2)
-                      fi
-
-                      # Deploy with run.sh prod or direct compose
-                      chmod +x ./run.sh 2>/dev/null || true
+                      # Deploy using run.sh
                       if [ -x "./run.sh" ]; then
-                        # Clean volumes if requested
-                        if [ "${{ inputs.clean_volumes }}" = "true" ]; then
-                          echo "🧹 Cleaning volumes..."
-                          ./run.sh prod down -v 2>/dev/null || true
-                        else
-                          echo "🛑 Stopping existing containers..."
-                          ./run.sh prod down 2>/dev/null || true
-                        fi
-
-                        # Pull latest images using both env files
-                        echo "📥 Pulling images..."
-                        $COMPOSE_CMD pull --ignore-pull-failures 2>&1 || true
-
-                        # Start services
-                        echo "🚀 Starting services..."
-                        ./run.sh prod start 2>&1
+                        echo "🐳 Stopping existing services..."
+                        ./run.sh stop 2>/dev/null || true
+                        echo "🐳 Starting services in production mode..."
+                        ./run.sh prod start
                       else
-                        if [ "${{ inputs.clean_volumes }}" = "true" ]; then
-                          $COMPOSE_CMD down -v --remove-orphans 2>/dev/null || true
-                        else
-                          $COMPOSE_CMD down --remove-orphans 2>/dev/null || true
-                        fi
-                        $COMPOSE_CMD pull --ignore-pull-failures 2>&1 || true
-                        $COMPOSE_CMD up -d 2>&1
+                        echo "⚠️ run.sh not found, using docker compose directly"
+                        docker compose pull --ignore-pull-failures
+                        docker compose up -d --remove-orphans
                       fi
-
-                      echo "⏳ Waiting for services to start..."
-                      sleep 30
-
-                      # Run initial optimization if requested
-                      if [ "${{ inputs.run_initial_optimization }}" = "true" ]; then
-                        echo "🔧 Running initial optimization..."
-                        docker exec fks_janus /app/janus-optimizer run-once --quick --assets "${{ inputs.assets }}" 2>&1 || echo "⚠️ Initial optimization had issues"
-                      fi
-
-                      # Start background log collection
-                      if [ -z "$TEST_LOG_DIR" ]; then
-                        TEST_LOG_DIR=$(grep TEST_LOG_DIR "$TEST_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2)
-                      fi
-                      mkdir -p "$TEST_LOG_DIR"
-
-                      # Collect all services combined log (capture stderr separately for debugging)
-                      nohup docker compose --env-file .env --env-file "$TEST_ENV_FILE" -f infrastructure/compose/docker-compose.yml -f infrastructure/compose/docker-compose.prod.yml logs -f --timestamps >> "$TEST_LOG_DIR/all-services.log" 2> "$TEST_LOG_DIR/log-collector.err" &
-                      COLLECTOR_PID=$!
-                      echo $COLLECTOR_PID > "$TEST_LOG_DIR/log-collector.pid"
-
-                      # Verify log collector started
-                      sleep 2
-                      if ps -p $COLLECTOR_PID > /dev/null 2>&1; then
-                        echo "✅ Combined log collector started (PID: $COLLECTOR_PID)"
-                        sleep 1
-                        if [ -s "$TEST_LOG_DIR/all-services.log" ]; then
-                          echo "✅ all-services.log is receiving data"
-                        else
-                          echo "⚠️ all-services.log is empty - check $TEST_LOG_DIR/log-collector.err"
-                          [ -s "$TEST_LOG_DIR/log-collector.err" ] && cat "$TEST_LOG_DIR/log-collector.err"
-                        fi
-                      else
-                        echo "❌ Log collector failed to start! Check $TEST_LOG_DIR/log-collector.err"
-                        [ -s "$TEST_LOG_DIR/log-collector.err" ] && cat "$TEST_LOG_DIR/log-collector.err"
-                      fi
-
-                      # Collect individual service logs (verify containers exist first)
-                      for svc in janus execution redis postgres questdb; do
-                        if docker ps --filter "name=fks_${svc}" --format '{{.Names}}' | grep -q "fks_${svc}"; then
-                          nohup docker logs -f "fks_${svc}" >> "$TEST_LOG_DIR/${svc}.log" 2>&1 &
-                        fi
-                      done
-
-                      echo ""
-                      echo "📝 Log collection started:"
-                      echo "   - $TEST_LOG_DIR/all-services.log (combined, PID: $COLLECTOR_PID)"
-                      echo "   - $TEST_LOG_DIR/janus.log"
-                      echo "   - $TEST_LOG_DIR/execution.log"
-                      echo "   - $TEST_LOG_DIR/redis.log"
-                      echo "   - $TEST_LOG_DIR/postgres.log"
-                      echo "   - $TEST_LOG_DIR/questdb.log"
-                      echo ""
-                      echo "💡 If all-services.log is empty, check: $TEST_LOG_DIR/log-collector.err"
-                      echo "💡 To restart log collection: cd ~/fks && nohup docker compose -f infrastructure/compose/docker-compose.yml -f infrastructure/compose/docker-compose.prod.yml logs -f >> $TEST_LOG_DIR/all-services.log 2>&1 &"
-
-                      # Create helper script for checking status
-                      cat > "$TEST_LOG_DIR/check-status.sh" << 'STATUSEOF'
-                      #!/bin/bash
-                      echo "════════════════════════════════════════════════════════════"
-                      echo "📊 PAPER TRADING TEST STATUS"
-                      echo "════════════════════════════════════════════════════════════"
-                      echo ""
-                      echo "📦 Container Status:"
-                      docker ps -a --filter "name=fks" --format "table {{.Names}}\t{{.Status}}\t{{.RunningFor}}"
-                      echo ""
-                      echo "💾 Memory Usage:"
-                      docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}" | grep fks
-                      echo ""
-                      echo "📈 Recent Janus Logs (last 50 lines):"
-                      docker logs fks_janus --tail 50 2>&1
-                      echo ""
-                      echo "🔧 Optimizer Status:"
-                      docker exec fks_janus /app/janus-optimizer status 2>&1 || echo "Could not get optimizer status"
-                      STATUSEOF
-                      chmod +x "$TEST_LOG_DIR/check-status.sh"
-
-                      # Save test metadata
-                      cat > "$TEST_LOG_DIR/test-info.json" <<EOFTEST
-                      {
-                        "test_id": "${{ needs.setup.outputs.test_id }}",
-                        "test_type": "${{ inputs.duration_hours }}hr_paper_trading",
-                        "start_time": "${{ needs.setup.outputs.start_time }}",
-                        "expected_end_time": "${{ needs.setup.outputs.end_time }}",
-                        "duration_hours": ${{ inputs.duration_hours }},
-                        "mode": "simulation",
-                        "real_orders_enabled": false,
-                        "assets": "${{ inputs.assets }}",
-                        "optimize_interval": "${{ inputs.optimize_interval }}",
-                        "optimize_trials": ${{ inputs.optimize_trials }},
-                        "github_run_id": "${{ github.run_id }}",
-                        "github_sha": "${{ github.sha }}",
-                        "triggered_by": "${{ github.actor }}"
-                      }
-EOFTEST
-
-                      # Show status
-                      echo ""
-                      echo "╔══════════════════════════════════════════════════════════════╗"
-                      echo "║              48-HOUR TEST DEPLOYED SUCCESSFULLY              ║"
-                      echo "╚══════════════════════════════════════════════════════════════╝"
-                      echo ""
-                      echo "📊 Container Status:"
-                      docker ps -a --filter "name=fks" --format "table {{.Names}}\t{{.Status}}" | head -15
-                      echo ""
-                      echo "📁 Logs: $TEST_LOG_DIR"
-                      echo ""
-                      echo "💡 To check status later, run:"
-                      echo "   cd ~/fks && $TEST_LOG_DIR/check-status.sh"
-                      echo ""
-                      echo "💡 To tail logs:"
-                      echo "   tail -f $TEST_LOG_DIR/janus.log"
-
-                      # Check container count
-                      RUNNING=$(docker ps --filter "name=fks" --format '{{.Names}}' | wc -l)
-                      echo "✅ Running containers: $RUNNING"
 
                   post-deploy-command: |
-                      echo ""
-                      echo "🔍 Quick health check..."
-
-                      # Check optimizer status
-                      docker exec fks_janus /app/janus-optimizer status 2>&1 | head -20 || echo "⚠️ Optimizer status check failed"
+                      cd ${{ env.PROJECT_PATH }}
 
                       echo ""
-                      echo "✅ Deployment complete! Test is running."
+                      echo "📊 Service Status:"
+                      docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker ps --format "table {{.Names}}\t{{.Status}}"
 
-            - name: 📣 Notify test started
-              if: steps.deploy.outputs.deployed == 'true'
+                      echo ""
+                      echo "✅ Deployment complete!"
+
+            # ======================================================================
+            # HEALTH CHECKS
+            # ======================================================================
+            - name: 🏥 Run Health Checks
+              id: health-checks
+              if: always() && steps.deploy.outcome == 'success'
+              uses: nuniesmith/actions/.github/actions/health-check@main
+              with:
+                  containers: nginx,photoprism,nextcloud,homeassistant,audiobookshelf
+                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
+                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  initial-delay: 30
+                  retry-count: 3
+                  retry-delay: 10
+                  fail-on-unhealthy: false
+
+            # ======================================================================
+            # DISCORD NOTIFICATION (Optional)
+            # ======================================================================
+            - name: 📣 Notify deployment
+              if: always()
               uses: nuniesmith/actions/.github/actions/discord-notify@main
               continue-on-error: true
               with:
                   webhook-url: ${{ secrets.DISCORD_WEBHOOK_ACTIONS }}
-                  title: "🧪 48-Hour Paper Trading Test Started"
-                  description: "Paper trading soak test has been deployed and started."
-                  status: success
+                  title: "🏠 Freddy Deployment"
+                  description: "Personal services server deployment"
+                  status: ${{ steps.deploy.outcome == 'success' && 'success' || 'failure' }}
                   include-repo-info: true
                   fields: |
-                      Test ID|${{ needs.setup.outputs.test_id }}|true
-                      Duration|${{ inputs.duration_hours }} hours|true
-                      Assets|${{ inputs.assets }}|true
-                      Optimizer|${{ inputs.optimize_interval }} / ${{ inputs.optimize_trials }} trials|true
-                      Start Time|${{ needs.setup.outputs.start_time }}|false
-                      Expected End|${{ needs.setup.outputs.end_time }}|false
+                      [
+                        {"name": "Server", "value": "Freddy", "inline": true},
+                        {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+                        {"name": "Health", "value": "${{ steps.health-checks.outputs.healthy == 'true' && '✅ Healthy' || '⚠️ Check Required' }}", "inline": true}
+                      ]
+
+    # ==========================================================================
+    # PIPELINE SUMMARY
+    # ==========================================================================
+    summary:
+        name: 📊 Summary
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: [dns-update, ssl-generate, deploy]
+        if: always()
+
+        steps:
+            - name: 📊 Generate summary
+              run: |
+                  echo "## 🏠 Freddy Deployment Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+                  echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+
+                  # DNS Update status
+                  if [ "${{ needs.dns-update.result }}" = "success" ]; then
+                    echo "| 🌐 DNS Update | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.dns-update.result }}" = "skipped" ]; then
+                    echo "| 🌐 DNS Update | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🌐 DNS Update | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  # SSL Certificates status
+                  if [ "${{ needs.ssl-generate.result }}" = "success" ]; then
+                    echo "| 🔐 SSL Certs | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.ssl-generate.result }}" = "skipped" ]; then
+                    echo "| 🔐 SSL Certs | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🔐 SSL Certs | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  # Deploy status
+                  if [ "${{ needs.deploy.result }}" = "success" ]; then
+                    echo "| 🚀 Deploy | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.deploy.result }}" = "skipped" ]; then
+                    echo "| 🚀 Deploy | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "| 🚀 Deploy | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+                  fi
+
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📋 Details" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Server:** Freddy (Personal Services)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Domain:** ${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 🔧 Architecture" >> $GITHUB_STEP_SUMMARY
+                  echo "- All DNS records point to Freddy's Tailscale IP" >> $GITHUB_STEP_SUMMARY
+                  echo "- Freddy's nginx reverse proxies Sullivan services over Tailscale" >> $GITHUB_STEP_SUMMARY
+                  echo "- SSL certificates cover both Freddy and Sullivan subdomains" >> $GITHUB_STEP_SUMMARY
+
+            - name: ❌ Fail on deployment error
+              if: needs.deploy.result == 'failure'
+              run: |
+                  echo "::error::Deployment failed"
+                  exit 1
