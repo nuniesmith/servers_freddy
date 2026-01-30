@@ -38,7 +38,7 @@ on:
                 default: true
             force_ssl_regen:
                 description: "Force SSL certificate regeneration (fixes corrupted certs)"
-                required: false
+                required: true
                 type: boolean
                 default: false
     schedule:
