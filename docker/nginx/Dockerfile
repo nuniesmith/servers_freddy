@@ -23,40 +23,47 @@ FROM base AS production
 # Create directories
 RUN mkdir -p /etc/nginx/conf.d \
     /etc/nginx/ssl \
-    /etc/letsencrypt \
+    /etc/nginx/ssl/fallback \
+    /etc/letsencrypt/live/7gram.xyz \
     /var/www/certbot \
     /var/log/nginx \
-    /var/cache/nginx
+    /var/cache/nginx \
+    /dashboard
+
+# Remove default nginx config that comes with the base image
+RUN rm -f /etc/nginx/conf.d/default.conf
 
 # Copy nginx configuration files
-COPY ../services/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY ../services/nginx/conf.d/ /etc/nginx/conf.d/
+COPY services/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY services/nginx/conf.d/ /etc/nginx/conf.d/
 
 # Generate self-signed fallback certificate for initial startup
 # This allows nginx to start before Let's Encrypt certs are available
-RUN mkdir -p /etc/nginx/ssl/fallback && \
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/fallback/privkey.pem \
     -out /etc/nginx/ssl/fallback/fullchain.pem \
-    -subj "/C=CA/ST=Ontario/L=Toronto/O=Freddy/CN=7gram.xyz" && \
-    # Create the directory for cert symlinks (symlinks created at runtime by entrypoint)
-    mkdir -p /etc/letsencrypt/live/7gram.xyz
+    -subj "/C=CA/ST=Ontario/L=Toronto/O=Freddy/CN=7gram.xyz" \
+    -addext "subjectAltName=DNS:7gram.xyz,DNS:*.7gram.xyz"
 
 # Set proper permissions for fallback certs
 RUN chmod 644 /etc/nginx/ssl/fallback/fullchain.pem && \
     chmod 600 /etc/nginx/ssl/fallback/privkey.pem && \
     chown nginx:nginx /etc/nginx/ssl/fallback/*.pem
 
+# Create dashboard directory with simple health page
+RUN echo '<html><head><title>Freddy Server</title></head><body style="font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px;"><h1>🏠 Freddy Server</h1><p>Server is running. Services are available at their respective subdomains:</p><ul><li>photo.7gram.xyz - PhotoPrism</li><li>nc.7gram.xyz - Nextcloud</li><li>home.7gram.xyz - Home Assistant</li><li>audiobook.7gram.xyz - Audiobookshelf</li></ul></body></html>' > /dashboard/index.html && \
+    chmod 644 /dashboard/index.html
+
 # Copy entrypoint script
 COPY docker/nginx/entrypoint.sh /docker-entrypoint.d/99-init.sh
 RUN chmod +x /docker-entrypoint.d/99-init.sh
 
 # Set proper permissions
-RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx && \
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /dashboard && \
     chmod -R 755 /etc/nginx
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -sf http://localhost/health > /dev/null || exit 1
 
 EXPOSE 80 443

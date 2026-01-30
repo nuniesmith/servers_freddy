@@ -230,16 +230,25 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Check SSL certificates
-                      CERT_DIR="/opt/ssl/7gram.xyz"
-                      echo "🔍 Checking SSL certs in $CERT_DIR"
-                      ls -la $CERT_DIR 2>/dev/null || echo "  Cert dir not found"
-                      if [ ! -f "$CERT_DIR/fullchain.pem" ] || ! openssl x509 -checkend 604800 -noout -in "$CERT_DIR/fullchain.pem" >/dev/null 2>&1; then
-                        echo "🔐 SSL certs missing or expire soon (<=7 days), generating Let's Encrypt certs..."
-                        cd scripts && ./letsencrypt.sh && cd .. && echo "✅ SSL generated" || { echo "⚠️ SSL gen failed, proceeding with self-signed fallback"; cd ..; }
+                      # Check and setup SSL certificates using automated script
+                      echo "🔐 Setting up SSL certificates..."
+                      chmod +x ./scripts/ci-ssl-setup.sh
+                      export CLOUDFLARE_EMAIL="${{ secrets.CLOUDFLARE_EMAIL }}"
+                      export CLOUDFLARE_API_KEY="${{ secrets.CLOUDFLARE_API_KEY }}"
+                      export CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
+                      export CERTBOT_EMAIL="${{ secrets.CERTBOT_EMAIL || secrets.CLOUDFLARE_EMAIL }}"
+                      export SSL_DOMAIN="${{ env.DOMAIN }}"
+                      export SSL_CERT_PATH="${{ env.SSL_CERT_PATH }}"
+
+                      # Run automated SSL setup (will skip if valid cert exists)
+                      if ./scripts/ci-ssl-setup.sh; then
+                        echo "✅ SSL certificates ready"
                       else
-                        echo "✅ SSL certs valid"
+                        echo "⚠️ SSL setup completed with fallback certificate"
                       fi
+
+                      # Verify certificates are in place
+                      ls -la ${{ env.SSL_CERT_PATH }} 2>/dev/null || echo "  Warning: Cert dir verification failed"
 
                       # Load environment variables
                       if [ -f .env ]; then
