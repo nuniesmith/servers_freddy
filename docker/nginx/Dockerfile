@@ -51,7 +51,7 @@ RUN chmod 644 /etc/nginx/ssl/fallback/fullchain.pem && \
     chown nginx:nginx /etc/nginx/ssl/fallback/*.pem
 
 # Create dashboard directory with simple health page
-RUN echo '<html><head><title>Freddy Server</title></head><body style="font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px;"><h1>🏠 Freddy Server</h1><p>Server is running. Services are available at their respective subdomains:</p><ul><li>photo.7gram.xyz - PhotoPrism</li><li>nc.7gram.xyz - Nextcloud</li><li>home.7gram.xyz - Home Assistant</li><li>audiobook.7gram.xyz - Audiobookshelf</li></ul></body></html>' > /dashboard/index.html && \
+RUN echo '<html><head><title>Freddy Server</title></head><body style="font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px;"><h1>🏠 Freddy Server</h1><p>Server is running. Services are available at their respective subdomains:</p><ul><li>photo.7gram.xyz - PhotoPrism</li><li>nc.7gram.xyz - Nextcloud</li><li>home.7gram.xyz - Home Assistant</li><li>abs.7gram.xyz - Audiobookshelf</li></ul></body></html>' > /dashboard/index.html && \
     chmod 644 /dashboard/index.html
 
 # Copy entrypoint script

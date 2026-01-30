@@ -84,7 +84,7 @@ curl https://7gram.xyz
 curl -I https://photo.7gram.xyz
 curl -I https://nc.7gram.xyz
 curl -I https://home.7gram.xyz
-curl -I https://audiobook.7gram.xyz
+curl -I https://abs.7gram.xyz
 # All should return: 200 OK or 302 (not 500!)
 ```
 

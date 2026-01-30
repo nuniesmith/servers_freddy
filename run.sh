@@ -136,7 +136,7 @@ cmd_start() {
     echo "  PhotoPrism:     https://photo.7gram.xyz"
     echo "  Nextcloud:      https://nc.7gram.xyz"
     echo "  Home Assistant: https://home.7gram.xyz"
-    echo "  Audiobookshelf: https://audiobook.7gram.xyz"
+    echo "  Audiobookshelf: https://abs.7gram.xyz"
     echo ""
     print_info "View logs: ./run.sh logs [service]"
     print_info "Check health: ./run.sh health"

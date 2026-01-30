@@ -67,7 +67,7 @@
 - [ ] PhotoPrism accessible: `curl -I https://photo.7gram.xyz` → Not 500
 - [ ] Nextcloud accessible: `curl -I https://nc.7gram.xyz` → Not 500
 - [ ] Home Assistant accessible: `curl -I https://home.7gram.xyz` → Not 500
-- [ ] Audiobookshelf accessible: `curl -I https://audiobook.7gram.xyz` → Not 500
+- [ ] Audiobookshelf accessible: `curl -I https://abs.7gram.xyz` → Not 500
 - [ ] SSL certificate valid: Browser shows secure lock icon
 
 ### SSL Verification

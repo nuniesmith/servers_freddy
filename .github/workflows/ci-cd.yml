@@ -61,7 +61,7 @@ env:
         nc.7gram.xyz
         photo.7gram.xyz
         home.7gram.xyz
-        audiobook.7gram.xyz
+        abs.7gram.xyz
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -334,7 +334,7 @@ jobs:
               uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
               with:
                   domain: ${{ env.DOMAIN }}
-                  additional-domains: "*.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,audiobook.7gram.xyz,sullivan.7gram.xyz,*.sullivan.7gram.xyz"
+                  additional-domains: "*.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,abs.7gram.xyz,sullivan.7gram.xyz,*.sullivan.7gram.xyz"
                   cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   email: ${{ secrets.SSL_EMAIL }}
                   propagation-seconds: 60
@@ -635,17 +635,27 @@ jobs:
                   deploy-command: |
                       cd ${{ env.PROJECT_PATH }}
 
-                      # Deploy using run.sh
+                      # Stop existing services
+                      echo "🐳 Stopping existing services..."
                       if [ -x "./run.sh" ]; then
-                        echo "🐳 Stopping existing services..."
                         ./run.sh stop 2>/dev/null || true
-                        echo "🐳 Starting services in production mode..."
-                        ./run.sh prod start
                       else
-                        echo "⚠️ run.sh not found, using docker compose directly"
-                        docker compose pull --ignore-pull-failures
-                        docker compose up -d --remove-orphans
+                        docker compose down 2>/dev/null || true
                       fi
+
+                      # Rebuild nginx with --no-cache to pick up fresh certificates
+                      echo "🔨 Rebuilding nginx container with fresh certificates..."
+                      docker compose build --no-cache nginx
+
+                      # Pull other images
+                      echo "📥 Pulling latest images for other services..."
+                      docker compose pull --ignore-pull-failures
+
+                      # Start all services
+                      echo "🚀 Starting all services..."
+                      docker compose up -d --remove-orphans
+
+                      echo "✅ Deployment complete"
 
                   post-deploy-command: |
                       cd ${{ env.PROJECT_PATH }}

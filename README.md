@@ -10,7 +10,7 @@ Freddy is a self-hosted personal server running on a lightweight home server, pr
 | **PhotoPrism** | `photo.7gram.xyz` | AI-powered photo management |
 | **Nextcloud** | `nc.7gram.xyz` | Self-hosted cloud storage |
 | **Home Assistant** | `home.7gram.xyz` | Home automation platform |
-| **Audiobookshelf** | `audiobook.7gram.xyz` | Audiobook library management |
+| **Audiobookshelf** | `abs.7gram.xyz` | Audiobook library management |
 
 ### Sullivan Services (Proxied)
 
