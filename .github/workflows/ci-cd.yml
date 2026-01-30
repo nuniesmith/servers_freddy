@@ -150,13 +150,75 @@ jobs:
     # ==========================================================================
 
     # ==========================================================================
-    # DEPLOY
+    # SSL CERTIFICATE GENERATION
+    # ==========================================================================
+    ssl-generate:
+        name: 🔐 Generate/Renew SSL Certificates
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: [dns-update]
+        if: |
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'push' ||
+            needs.dns-update.outputs.dns-updated == 'true'
+
+        outputs:
+            cert-ready: ${{ steps.certbot.outputs.cert-ready }}
+            cert-type: ${{ steps.certbot.outputs.cert-type }}
+
+        steps:
+            - name: 📥 Checkout code
+              uses: actions/checkout@v4
+
+            - name: 🔌 Connect to Tailscale
+              id: tailscale
+              uses: nuniesmith/actions/.github/actions/tailscale-connect@main
+              with:
+                  oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+                  oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  target-ip: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  target-ssh-port: ${{ secrets.SSH_PORT || '22' }}
+
+            - name: 🔐 Generate SSL Certificates (Let's Encrypt + Cloudflare DNS)
+              id: certbot
+              uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
+              with:
+                  domain: ${{ env.DOMAIN }}
+                  additional-domains: "*.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,audiobook.7gram.xyz,sullivan.7gram.xyz,*.sullivan.7gram.xyz"
+                  cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  email: ${{ secrets.SSL_EMAIL }}
+                  propagation-seconds: 60
+                  staging: false
+                  fallback-to-self-signed: true
+                  deploy-to-server: true
+                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
+                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
+                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
+                  ssh-key: ${{ secrets.SSH_KEY }}
+                  docker-volume-name: ssl-certs
+                  docker-username: ${{ secrets.DOCKER_USERNAME }}
+                  docker-token: ${{ secrets.DOCKER_TOKEN }}
+
+            - name: 📋 SSL Summary
+              run: |
+                  echo "## 🔐 SSL Certificates" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+                  echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+                  echo "| Domain | \`${{ env.DOMAIN }}\` |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Status | ${{ steps.certbot.outputs.cert-ready == 'true' && '✅ Ready' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Type | \`${{ steps.certbot.outputs.cert-type }}\` |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Expires | ${{ steps.certbot.outputs.expiry-date }} |" >> $GITHUB_STEP_SUMMARY
+
+    # ==========================================================================
+    # DEPLOYMENT
     # ==========================================================================
     deploy:
         name: 🚀 Deploy to Freddy
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [dns-update]
+        needs: [dns-update, ssl-generate]
         if: |
             always() &&
             (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
@@ -201,27 +263,33 @@ jobs:
                   pre-deploy-command: |
                       echo "🏠 Deploying to Freddy server..."
 
+                      # Create project directory if it doesn't exist
+                      echo "📁 Ensuring project directory exists..."
+                      mkdir -p ${{ env.PROJECT_PATH }}
+
                       # Stop existing services to release file locks
-                      echo "🛑 Stopping existing services to release file locks..."
+                      echo "🛑 Stopping existing services..."
                       if [ -d "${{ env.PROJECT_PATH }}" ]; then
-                        cd ${{ env.PROJECT_PATH }} && ( ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true ); cd ..
+                        cd ${{ env.PROJECT_PATH }}
+                        ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
+                        cd ~
                       fi
 
                       # Handle git repository setup
                       cd ${{ env.PROJECT_PATH }}
-                      if git status >/dev/null 2>&1; then
-                        echo "📥 Updating existing repo..."
-                        ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
+
+                      if [ -d .git ] && git status >/dev/null 2>&1; then
+                        echo "📥 Updating existing repository..."
                         git fetch origin
                         git checkout ${{ github.ref_name }}
-                        git reset --hard HEAD
-                        git clean -fdx
+                        git pull origin ${{ github.ref_name }} || {
+                          echo "⚠️ Git pull failed, doing hard reset..."
+                          git reset --hard origin/${{ github.ref_name }}
+                        }
                       else
-                        echo "📥 First deployment - cloning repository..."
-                        if [ -d ${{ env.PROJECT_PATH }} ]; then cd ${{ env.PROJECT_PATH }} && (docker compose down 2>/dev/null || true); cd .. ; fi
-                        cd ..
+                        echo "📥 Cloning repository (first deployment)..."
+                        cd ~
                         rm -rf ${{ env.PROJECT_PATH }}
-                        mkdir -p ${{ env.PROJECT_PATH }}
                         git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
                         cd ${{ env.PROJECT_PATH }}
                         git checkout ${{ github.ref_name }}
@@ -230,25 +298,17 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Check and setup SSL certificates using automated script
-                      echo "🔐 Setting up SSL certificates..."
-                      chmod +x ./scripts/ci-ssl-setup.sh
-                      export CLOUDFLARE_EMAIL="${{ secrets.CLOUDFLARE_EMAIL }}"
-                      export CLOUDFLARE_API_KEY="${{ secrets.CLOUDFLARE_API_KEY }}"
-                      export CLOUDFLARE_API_TOKEN="${{ secrets.CLOUDFLARE_API_TOKEN }}"
-                      export CERTBOT_EMAIL="${{ secrets.CERTBOT_EMAIL || secrets.CLOUDFLARE_EMAIL }}"
-                      export SSL_DOMAIN="${{ env.DOMAIN }}"
-                      export SSL_CERT_PATH="${{ env.SSL_CERT_PATH }}"
+                      # Check SSL certificates in Docker volume
+                      echo "🔍 Checking SSL certs in Docker volume..."
+                      CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
 
-                      # Run automated SSL setup (will skip if valid cert exists)
-                      if ./scripts/ci-ssl-setup.sh; then
-                        echo "✅ SSL certificates ready"
+                      if [ "$CERT_EXISTS" = "yes" ]; then
+                        echo "✅ SSL certificates found in Docker volume"
+                        docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
                       else
-                        echo "⚠️ SSL setup completed with fallback certificate"
+                        echo "⚠️ SSL certificates not found in Docker volume"
+                        echo "   They should have been generated in the ssl-generate job"
                       fi
-
-                      # Verify certificates are in place
-                      ls -la ${{ env.SSL_CERT_PATH }} 2>/dev/null || echo "  Warning: Cert dir verification failed"
 
                       # Load environment variables
                       if [ -f .env ]; then
@@ -326,7 +386,7 @@ jobs:
         name: 📊 Summary
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        needs: [dns-update, deploy]
+        needs: [dns-update, ssl-generate, deploy]
         if: always()
 
         steps:
@@ -347,9 +407,9 @@ jobs:
                   fi
 
                   # SSL Certificates status
-                  if [ "${{ needs.ssl-certificates.result }}" = "success" ]; then
+                  if [ "${{ needs.ssl-generate.result }}" = "success" ]; then
                     echo "| 🔐 SSL Certs | ✅ Success |" >> $GITHUB_STEP_SUMMARY
-                  elif [ "${{ needs.ssl-certificates.result }}" = "skipped" ]; then
+                  elif [ "${{ needs.ssl-generate.result }}" = "skipped" ]; then
                     echo "| 🔐 SSL Certs | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
                   else
                     echo "| 🔐 SSL Certs | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
