@@ -18,7 +18,16 @@ NC='\033[0m' # No Color
 
 # Configuration
 DOMAIN="7gram.xyz"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/freddy}"
+# Try multiple locations for the project directory
+if [ -n "$PROJECT_DIR" ]; then
+    PROJECT_DIR="$PROJECT_DIR"
+elif [ -d "/home/actions/freddy" ]; then
+    PROJECT_DIR="/home/actions/freddy"
+elif [ -d "$HOME/freddy" ]; then
+    PROJECT_DIR="$HOME/freddy"
+else
+    PROJECT_DIR="/home/actions/freddy"
+fi
 DOCKER_VOLUME="ssl-certs"
 
 echo -e "${CYAN}"
@@ -224,9 +233,10 @@ cleanup_certificates() {
     echo ""
 
     # 2. Remove ssl-certs Docker volume
-    echo -e "${YELLOW}[2/7] Removing ssl-certs Docker volume...${NC}"
+    echo -e "${YELLOW}[2/7] Removing ssl-certs Docker volumes...${NC}"
     echo "─────────────────────────────────────────────────────────────────"
-    docker volume rm ssl-certs 2>/dev/null && echo -e "${GREEN}✓ Removed ssl-certs volume${NC}" || echo "  Volume didn't exist"
+    docker volume rm ssl-certs 2>/dev/null && echo -e "${GREEN}✓ Removed ssl-certs volume${NC}" || echo "  ssl-certs volume didn't exist"
+    docker volume rm freddy_ssl-certs 2>/dev/null && echo -e "${GREEN}✓ Removed freddy_ssl-certs volume${NC}" || echo "  freddy_ssl-certs volume didn't exist"
     echo ""
 
     # 3. Remove any other cert-related volumes

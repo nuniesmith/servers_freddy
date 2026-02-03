@@ -55,8 +55,9 @@ volumes:
             device: /mnt/1tb/homeassistant
 
     # SSL Certificates volume (shared between CI/CD and nginx)
+    # External volume - created by CI/CD, not managed by docker-compose
     ssl-certs:
-        driver: local
+        external: true
 
 # Single network for all services - simple and reliable DNS resolution
 networks:
