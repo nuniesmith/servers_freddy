@@ -272,7 +272,7 @@ jobs:
                   ssh-user: ${{ secrets.SSH_USER || 'actions' }}
                   ssh-key: ${{ secrets.SSH_KEY }}
                   root-ssh-key: ${{ secrets.ROOT_SSH_KEY }}
-                  use-sudo: false
+                  use-sudo: true
                   deploy-method: host-path
                   host-cert-path: /etc/letsencrypt
 
