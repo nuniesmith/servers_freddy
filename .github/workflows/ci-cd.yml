@@ -52,7 +52,6 @@ env:
     SERVER_NAME: freddy
     PROJECT_PATH: ~/freddy
     DOMAIN: 7gram.xyz
-    SSL_CERT_PATH: /opt/ssl/7gram.xyz
 
     # Freddy DNS records (services hosted on freddy)
     FREDDY_DNS_RECORDS: >-
@@ -250,19 +249,6 @@ jobs:
                   docker volume rm ssl-certs 2>/dev/null || true
                   docker volume rm freddy_ssl-certs 2>/dev/null || true
 
-                  # Clean host certificate directories
-                  echo "→ Cleaning host certificate directories..."
-                  sudo rm -rf /opt/ssl/7gram.xyz 2>/dev/null || true
-                  sudo rm -rf /etc/letsencrypt 2>/dev/null || true
-                  sudo rm -rf /opt/letsencrypt 2>/dev/null || true
-
-                  # Clean project certificate directories
-                  echo "→ Cleaning project certificate directories..."
-                  rm -rf ~/freddy/ssl/ 2>/dev/null || true
-                  rm -rf ~/freddy/certs/ 2>/dev/null || true
-                  rm -rf ~/freddy/nginx/ssl/ 2>/dev/null || true
-                  rm -rf ~/freddy/nginx/certs/ 2>/dev/null || true
-
                   # Remove dangling volumes
                   echo "→ Pruning dangling volumes..."
                   docker volume prune -f 2>/dev/null || true
@@ -310,14 +296,6 @@ jobs:
                     docker rm -f nginx || true
                   else
                     echo "✓ nginx container is clean"
-                  fi
-
-                  # Check host certificate directories
-                  if [ -d "/opt/ssl/7gram.xyz" ] || [ -d "/etc/letsencrypt" ]; then
-                    echo "⚠️ WARNING: Host certificate directories exist, cleaning..."
-                    sudo rm -rf /opt/ssl/7gram.xyz /etc/letsencrypt 2>/dev/null || true
-                  else
-                    echo "✓ Host directories are clean"
                   fi
 
                   echo ""
@@ -521,19 +499,6 @@ jobs:
                       echo "  → Removing ssl-certs Docker volume..."
                       docker volume rm ssl-certs 2>/dev/null || true
 
-                      # Clean any host-mounted certificate directories
-                      echo "  → Cleaning host certificate directories..."
-                      sudo rm -rf ${{ env.SSL_CERT_PATH }} 2>/dev/null || true
-                      sudo rm -rf /etc/letsencrypt 2>/dev/null || true
-                      sudo rm -rf /opt/letsencrypt 2>/dev/null || true
-
-                      # Clean project-level cert directories
-                      if [ -d "${{ env.PROJECT_PATH }}" ]; then
-                        cd ${{ env.PROJECT_PATH }}
-                        rm -rf ssl/ certs/ certificates/ .ssl/ 2>/dev/null || true
-                        rm -rf nginx/ssl/ nginx/certs/ 2>/dev/null || true
-                      fi
-
                       # Remove any dangling certificate-related volumes
                       echo "  → Removing dangling volumes..."
                       docker volume prune -f 2>/dev/null || true
@@ -580,49 +545,17 @@ jobs:
 
                         if [ "$CERT_MOD" = "$KEY_MOD" ] && [ "$CERT_MOD" != "cert-error" ]; then
                           echo "✅ Certificate and private key match!"
+                          echo "✅ Certificates are ready for nginx mounting"
                         else
                           echo "❌ ERROR: Certificate and key DO NOT match!"
-                          echo "   This should not happen after cleanup and regeneration"
+                          echo "   Cannot proceed with nginx deployment"
                           exit 1
                         fi
                       else
-                        echo "⚠️ SSL certificates not found in Docker volume"
-                        echo "   They should have been generated in the ssl-generate job"
-                        echo "   Deployment will continue but nginx may fail to start"
-                      fi
-
-                      # Copy SSL certificates from Docker volume to host directory
-                      echo ""
-                      echo "📋 Copying SSL certificates to host directory..."
-                      if [ "$CERT_EXISTS" = "yes" ]; then
-                        # Ensure target directory exists
-                        sudo mkdir -p ${{ env.SSL_CERT_PATH }}
-
-                        # Copy certificates from Docker volume to host
-                        echo "  → Extracting fullchain.pem..."
-                        docker run --rm -v ssl-certs:/certs:ro -v ${{ env.SSL_CERT_PATH }}:/target:rw busybox:latest cp /certs/live/${{ env.DOMAIN }}/fullchain.pem /target/fullchain.pem
-
-                        echo "  → Extracting privkey.pem..."
-                        docker run --rm -v ssl-certs:/certs:ro -v ${{ env.SSL_CERT_PATH }}:/target:rw busybox:latest cp /certs/live/${{ env.DOMAIN }}/privkey.pem /target/privkey.pem
-
-                        # Set proper permissions
-                        sudo chmod 644 ${{ env.SSL_CERT_PATH }}/fullchain.pem
-                        sudo chmod 600 ${{ env.SSL_CERT_PATH }}/privkey.pem
-
-                        # Verify the copied files
-                        echo "  → Verifying copied certificates..."
-                        COPIED_CERT_MOD=$(openssl x509 -noout -modulus -in ${{ env.SSL_CERT_PATH }}/fullchain.pem | openssl md5 2>/dev/null || echo "error")
-                        COPIED_KEY_MOD=$(openssl rsa -noout -modulus -in ${{ env.SSL_CERT_PATH }}/privkey.pem | openssl md5 2>/dev/null || echo "error")
-
-                        if [ "$COPIED_CERT_MOD" = "$COPIED_KEY_MOD" ] && [ "$COPIED_CERT_MOD" != "error" ]; then
-                          echo "✅ Certificates successfully copied to ${{ env.SSL_CERT_PATH }}"
-                          ls -lh ${{ env.SSL_CERT_PATH }}/
-                        else
-                          echo "❌ ERROR: Copied certificates don't match or are invalid!"
-                          exit 1
-                        fi
-                      else
-                        echo "⚠️ Skipping certificate copy - no certificates in Docker volume"
+                        echo "❌ ERROR: SSL certificates not found in Docker volume"
+                        echo "   Certificates MUST be generated before deploying nginx"
+                        echo "   Check the ssl-generate job logs for errors"
+                        exit 1
                       fi
                       echo ""
 

@@ -64,10 +64,21 @@ check_letsencrypt_certs() {
     log_debug "Volume contents:"
     ls -lah "$VOLUME_DIR" 2>/dev/null | sed 's/^/  /' || log_warn "Cannot list volume directory"
 
-    if [ -f "$VOLUME_DIR/fullchain.pem" ] && [ -f "$VOLUME_DIR/privkey.pem" ]; then
+    # Check in Let's Encrypt standard location first (from certbot)
+    if [ -f "$VOLUME_DIR/live/$DOMAIN/fullchain.pem" ] && [ -f "$VOLUME_DIR/live/$DOMAIN/privkey.pem" ]; then
+        # Verify the certificates are valid
+        if openssl x509 -in "$VOLUME_DIR/live/$DOMAIN/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1; then
+            log_debug "✓ Certificate files found in live/$DOMAIN/ and valid"
+            return 0
+        else
+            log_warn "Certificate file exists in live/$DOMAIN/ but is expired or invalid"
+            return 1
+        fi
+    # Fallback to flat structure (legacy support)
+    elif [ -f "$VOLUME_DIR/fullchain.pem" ] && [ -f "$VOLUME_DIR/privkey.pem" ]; then
         # Verify the certificates are valid
         if openssl x509 -in "$VOLUME_DIR/fullchain.pem" -noout -checkend 0 >/dev/null 2>&1; then
-            log_debug "✓ Certificate files found and valid"
+            log_debug "✓ Certificate files found at root level and valid"
             return 0
         else
             log_warn "Certificate file exists but is expired or invalid"
@@ -83,8 +94,22 @@ copy_letsencrypt_certs() {
     log_cert "Found Let's Encrypt certificates"
     log_info "Copying certificates from volume..."
 
-    cp "$VOLUME_DIR/fullchain.pem" "$TARGET_DIR/fullchain.pem"
-    cp "$VOLUME_DIR/privkey.pem" "$TARGET_DIR/privkey.pem"
+    # Determine source path (try Let's Encrypt standard location first)
+    local SOURCE_CERT=""
+    local SOURCE_KEY=""
+    
+    if [ -f "$VOLUME_DIR/live/$DOMAIN/fullchain.pem" ]; then
+        SOURCE_CERT="$VOLUME_DIR/live/$DOMAIN/fullchain.pem"
+        SOURCE_KEY="$VOLUME_DIR/live/$DOMAIN/privkey.pem"
+        log_debug "Using Let's Encrypt directory structure"
+    else
+        SOURCE_CERT="$VOLUME_DIR/fullchain.pem"
+        SOURCE_KEY="$VOLUME_DIR/privkey.pem"
+        log_debug "Using flat directory structure"
+    fi
+
+    cp "$SOURCE_CERT" "$TARGET_DIR/fullchain.pem"
+    cp "$SOURCE_KEY" "$TARGET_DIR/privkey.pem"
 
     # Set proper permissions
     chmod 644 "$TARGET_DIR/fullchain.pem"

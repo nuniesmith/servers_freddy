@@ -54,6 +54,10 @@ volumes:
             o: bind
             device: /mnt/1tb/homeassistant
 
+    # SSL Certificates volume (shared between CI/CD and nginx)
+    ssl-certs:
+        driver: local
+
 # Single network for all services - simple and reliable DNS resolution
 networks:
     freddy:
@@ -73,7 +77,7 @@ services:
         environment:
             - TZ=${TZ:-America/Toronto}
         volumes:
-            - /opt/ssl/7gram.xyz:/etc/letsencrypt-volume:ro
+            - ssl-certs:/etc/letsencrypt-volume:ro
         ports:
             - "80:80"
             - "443:443"
