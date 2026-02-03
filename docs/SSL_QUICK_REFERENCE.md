@@ -34,21 +34,23 @@
 ## 🚀 How It Works
 
 ### During CI/CD:
-1. **ssl-generate job** creates certificates via certbot
+1. **ssl-generate job** creates certificates via certbot (if needed)
 2. Certificates stored in Docker volume `ssl-certs`
-3. **deploy job** validates certs exist and match
+3. **deploy job** validates certs if they exist
 4. Nginx container starts with volume mounted read-only
 
 ### During Nginx Startup:
 1. Entrypoint checks `/etc/letsencrypt-volume/live/7gram.xyz/`
-2. Copies certificates to `/etc/nginx/ssl/`
-3. Validates cert/key match
-4. Tests nginx config
-5. Starts nginx
+2. If found: Copies certificates to `/etc/nginx/ssl/`
+3. If missing: Uses self-signed fallback certificates
+4. Validates cert/key match
+5. Tests nginx config
+6. Starts nginx
 
-### Fallback:
-- If no Let's Encrypt certs found, uses self-signed fallback
-- Nginx always starts (may show browser warnings if self-signed)
+### Certificate Validation:
+- **Certs exist + valid** → ✅ Production SSL (Let's Encrypt)
+- **Certs missing** → ⚠️ Self-signed fallback (works with browser warnings)
+- **Certs exist + mismatched** → ❌ Deployment fails (prevents corrupted SSL)
 
 ## 📝 Testing Checklist
 

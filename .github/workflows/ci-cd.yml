@@ -531,11 +531,20 @@ jobs:
                       chmod +x ./run.sh 2>/dev/null || true
 
                       # Verify SSL certificates are ready from ssl-generate job
-                      echo "🔍 Checking for fresh SSL certificates..."
+                      echo "🔍 Checking for SSL certificates in Docker volume..."
+                      
+                      # Check if ssl-certs volume exists
+                      if ! docker volume inspect ssl-certs >/dev/null 2>&1; then
+                        echo "⚠️  ssl-certs volume does not exist yet"
+                        echo "   Creating volume - nginx will use self-signed fallback certificates"
+                        docker volume create ssl-certs
+                      fi
+                      
+                      # Check if certificates exist in volume
                       CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
 
                       if [ "$CERT_EXISTS" = "yes" ]; then
-                        echo "✅ Fresh SSL certificates found in Docker volume"
+                        echo "✅ Let's Encrypt certificates found in Docker volume"
                         docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
 
                         # Verify certificate and key match
@@ -545,17 +554,21 @@ jobs:
 
                         if [ "$CERT_MOD" = "$KEY_MOD" ] && [ "$CERT_MOD" != "cert-error" ]; then
                           echo "✅ Certificate and private key match!"
-                          echo "✅ Certificates are ready for nginx mounting"
+                          echo "✅ Nginx will use Let's Encrypt production certificates"
                         else
                           echo "❌ ERROR: Certificate and key DO NOT match!"
-                          echo "   Cannot proceed with nginx deployment"
+                          echo "   This indicates corrupted certificates in the volume"
+                          echo "   Run workflow with 'force_ssl_regen' to fix this issue"
                           exit 1
                         fi
                       else
-                        echo "❌ ERROR: SSL certificates not found in Docker volume"
-                        echo "   Certificates MUST be generated before deploying nginx"
-                        echo "   Check the ssl-generate job logs for errors"
-                        exit 1
+                        echo "⚠️  No Let's Encrypt certificates found in volume"
+                        echo "   Nginx will start using self-signed fallback certificates"
+                        echo "   SSL will work but browsers will show security warnings"
+                        echo ""
+                        echo "   To obtain Let's Encrypt certificates:"
+                        echo "   • Run this workflow with 'force_ssl_regen' enabled"
+                        echo "   • Or wait for the weekly scheduled renewal"
                       fi
                       echo ""
 
