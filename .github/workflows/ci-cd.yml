@@ -394,34 +394,27 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Verify SSL certificates are ready on host filesystem
-                      echo "🔍 Checking for SSL certificates on host filesystem..."
+                      # Verify SSL certificates are ready in Docker volume
+                      echo "🔍 Checking for SSL certificates in Docker volume..."
 
-                      # Check if certificates exist on host
-                      if [ -f /etc/letsencrypt/live/${{ env.DOMAIN }}/fullchain.pem ]; then
-                        echo "✅ Let's Encrypt certificates found on host at /etc/letsencrypt"
-                        ls -lah /etc/letsencrypt/live/${{ env.DOMAIN }}/
+                      # Check if ssl-certs volume exists and has certificates
+                      if docker volume inspect ssl-certs >/dev/null 2>&1; then
+                        if docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem 2>/dev/null; then
+                          echo "✅ Let's Encrypt certificates found in ssl-certs volume"
+                          docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
 
-                        # Verify certificate and key match
-                        echo "🔐 Verifying certificate/key pair..."
-                        CERT_HASH=$(openssl x509 -noout -pubkey -in /etc/letsencrypt/live/${{ env.DOMAIN }}/fullchain.pem 2>/dev/null | openssl sha256 || echo "cert-error")
-                        KEY_HASH=$(openssl pkey -pubout -in /etc/letsencrypt/live/${{ env.DOMAIN }}/privkey.pem 2>/dev/null | openssl sha256 || echo "key-error")
-
-                        if [ "$CERT_HASH" = "$KEY_HASH" ] && [ "$CERT_HASH" != "cert-error" ]; then
-                          echo "✅ Certificate and private key match!"
+                          # Verify certificate details
+                          echo "🔐 Certificate details:"
+                          docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/${{ env.DOMAIN }}/fullchain.pem -noout -issuer -dates 2>/dev/null || true
                           echo "✅ Nginx will use Let's Encrypt production certificates"
                         else
-                          echo "⚠️ Certificate verification inconclusive (may be ECDSA key)"
-                          echo "✅ Certificate files exist - nginx will use them"
+                          echo "⚠️  No Let's Encrypt certificates found in volume"
+                          echo "   Nginx will start using self-signed fallback certificates"
                         fi
                       else
-                        echo "⚠️  No Let's Encrypt certificates found on host"
+                        echo "⚠️  ssl-certs volume does not exist yet"
+                        echo "   Volume will be created during deployment"
                         echo "   Nginx will start using self-signed fallback certificates"
-                        echo "   SSL will work but browsers will show security warnings"
-                        echo ""
-                        echo "   To obtain Let's Encrypt certificates:"
-                        echo "   • Run this workflow with 'force_ssl_regen' enabled"
-                        echo "   • Or wait for the weekly scheduled renewal"
                       fi
                       echo ""
 
@@ -440,6 +433,15 @@ jobs:
                         ./run.sh stop 2>/dev/null || true
                       else
                         docker compose down 2>/dev/null || true
+                      fi
+
+                      # Ensure ssl-certs external volume exists
+                      echo "🔐 Ensuring ssl-certs external volume exists..."
+                      if ! docker volume inspect ssl-certs >/dev/null 2>&1; then
+                        echo "  → Creating ssl-certs volume..."
+                        docker volume create ssl-certs
+                      else
+                        echo "  ✓ ssl-certs volume already exists"
                       fi
 
                       # Rebuild nginx with --no-cache to pick up fresh certificates
