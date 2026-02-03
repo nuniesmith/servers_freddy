@@ -41,6 +41,11 @@ on:
                 required: false
                 type: boolean
                 default: false
+            use_staging_certs:
+                description: "Use Let's Encrypt staging server (for testing, avoids rate limits)"
+                required: false
+                type: boolean
+                default: false
     schedule:
         # Run SSL renewal check weekly on Sundays at 3am UTC
         - cron: "0 3 * * 0"
@@ -243,11 +248,14 @@ jobs:
               uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
               with:
                   domain: ${{ env.DOMAIN }}
-                  additional-domains: "*.7gram.xyz,nc.7gram.xyz,photo.7gram.xyz,home.7gram.xyz,abs.7gram.xyz,sullivan.7gram.xyz,*.sullivan.7gram.xyz"
+                  # Note: Don't include specific subdomains that are covered by wildcards
+                  # *.7gram.xyz covers nc, photo, home, abs, sullivan, etc.
+                  # *.sullivan.7gram.xyz covers any sullivan subdomains
+                  additional-domains: "*.7gram.xyz,*.sullivan.7gram.xyz"
                   cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   email: ${{ secrets.SSL_EMAIL }}
                   propagation-seconds: 60
-                  staging: false
+                  staging: ${{ inputs.use_staging_certs || false }}
                   fallback-to-self-signed: true
                   deploy-to-server: true
                   ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
@@ -480,7 +488,8 @@ jobs:
               if: always() && steps.deploy.outcome == 'success'
               uses: nuniesmith/actions/.github/actions/health-check@main
               with:
-                  containers: nginx,photoprism,nextcloud,homeassistant,audiobookshelf
+                  # Note: health-check action expects SPACE-separated container names
+                  containers: nginx photoprism nextcloud homeassistant audiobookshelf
                   ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
                   ssh-port: ${{ secrets.SSH_PORT || '22' }}
                   ssh-user: ${{ secrets.SSH_USER || 'actions' }}
