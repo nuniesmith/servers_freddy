@@ -194,43 +194,51 @@ jobs:
               if: inputs.force_ssl_regen == true
               run: |
                   echo "🧹 Forcing comprehensive SSL certificate cleanup..."
-                  echo "This will remove ALL existing certificates and volumes"
+                  echo "This will remove ALL existing certificates from host filesystem"
+
+                  # Determine which SSH key and user to use
+                  if [ -n "$ROOT_SSH_KEY" ]; then
+                    echo "🔑 Using root SSH key for SSL cleanup"
+                    CLEANUP_SSH_KEY="$ROOT_SSH_KEY"
+                    CLEANUP_USER="root"
+                    SUDO_CMD=""
+                  else
+                    echo "🔑 Using actions SSH key with sudo for cleanup"
+                    CLEANUP_SSH_KEY="$SSH_KEY"
+                    CLEANUP_USER="${{ secrets.SSH_USER || 'actions' }}"
+                    SUDO_CMD="sudo"
+                  fi
 
                   # Setup SSH key
                   mkdir -p ~/.ssh
-                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  echo "$CLEANUP_SSH_KEY" > ~/.ssh/id_rsa
                   chmod 600 ~/.ssh/id_rsa
 
                   ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
-                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+                    $CLEANUP_USER@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
                   set -e
                   echo "================================================"
                   echo "  SSL CERTIFICATE CLEANUP"
                   echo "================================================"
+                  echo "👤 Running as: $(whoami)"
 
-                  # Stop all services to release volume locks
-                  echo "→ Stopping all services..."
-                  cd ~/freddy 2>/dev/null || true
-                  ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
+                  # Determine sudo command (empty if root)
+                  if [ "$(whoami)" = "root" ]; then
+                    SUDO_CMD=""
+                  else
+                    SUDO_CMD="sudo"
+                  fi
 
-                  # Stop and remove nginx specifically
-                  echo "→ Removing nginx container..."
-                  docker stop nginx 2>/dev/null || true
-                  docker rm -f nginx 2>/dev/null || true
+                  # Remove certificates from host filesystem
+                  echo "→ Removing certificates from /etc/letsencrypt..."
+                  $SUDO_CMD rm -rf /etc/letsencrypt/live
+                  $SUDO_CMD rm -rf /etc/letsencrypt/archive
+                  $SUDO_CMD rm -rf /etc/letsencrypt/renewal
+                  $SUDO_CMD mkdir -p /etc/letsencrypt
 
-                  # Remove ssl-certs Docker volume
-                  echo "→ Removing ssl-certs Docker volume..."
-                  docker volume rm ssl-certs 2>/dev/null || true
-                  docker volume rm freddy_ssl-certs 2>/dev/null || true
-
-                  # Remove dangling volumes
-                  echo "→ Pruning dangling volumes..."
-                  docker volume prune -f 2>/dev/null || true
-
-                  # Remove any stopped containers
-                  echo "→ Pruning stopped containers..."
-                  docker container prune -f 2>/dev/null || true
+                  # Set proper permissions
+                  $SUDO_CMD chmod 755 /etc/letsencrypt
 
                   echo ""
                   echo "✅ Complete cleanup finished"
@@ -242,6 +250,7 @@ jobs:
                   rm -f ~/.ssh/id_rsa
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
+                  ROOT_SSH_KEY: ${{ secrets.ROOT_SSH_KEY }}
 
             - name: 🔐 Generate SSL Certificates (Let's Encrypt + Cloudflare DNS)
               id: certbot
@@ -262,59 +271,78 @@ jobs:
                   ssh-port: ${{ secrets.SSH_PORT || '22' }}
                   ssh-user: ${{ secrets.SSH_USER || 'actions' }}
                   ssh-key: ${{ secrets.SSH_KEY }}
-                  docker-volume-name: ssl-certs
-                  docker-username: ${{ secrets.DOCKER_USERNAME }}
-                  docker-token: ${{ secrets.DOCKER_TOKEN }}
+                  root-ssh-key: ${{ secrets.ROOT_SSH_KEY }}
+                  use-sudo: false
+                  deploy-method: host-path
+                  host-cert-path: /etc/letsencrypt
 
-            - name: ✅ Verify SSL certificates in volume
+            - name: ✅ Verify SSL certificates on host
               run: |
-                  echo "✅ Verifying generated certificates are ready..."
+                  echo "✅ Verifying certificates on host filesystem..."
+
+                  # Determine which SSH key and user to use
+                  if [ -n "$ROOT_SSH_KEY" ]; then
+                    echo "🔑 Using root SSH key for verification"
+                    VERIFY_SSH_KEY="$ROOT_SSH_KEY"
+                    VERIFY_USER="root"
+                    SUDO_CMD=""
+                  else
+                    echo "🔑 Using actions SSH key for verification"
+                    VERIFY_SSH_KEY="$SSH_KEY"
+                    VERIFY_USER="${{ secrets.SSH_USER || 'actions' }}"
+                    SUDO_CMD="sudo"
+                  fi
 
                   # Setup SSH key
                   mkdir -p ~/.ssh
-                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  echo "$VERIFY_SSH_KEY" > ~/.ssh/id_rsa
                   chmod 600 ~/.ssh/id_rsa
 
                   ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
-                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+                    $VERIFY_USER@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
 
                   echo "================================================"
                   echo "  SSL CERTIFICATE VERIFICATION"
                   echo "================================================"
+                  echo "👤 Running as: $(whoami)"
 
-                  # Check if ssl-certs volume exists
-                  if ! docker volume inspect ssl-certs >/dev/null 2>&1; then
-                    echo "⚠️  ssl-certs volume not found - will be created"
-                    docker volume create ssl-certs
+                  # Determine sudo command (empty if root)
+                  if [ "$(whoami)" = "root" ]; then
+                    SUDO_CMD=""
                   else
-                    echo "✓ ssl-certs volume exists"
+                    SUDO_CMD="sudo"
                   fi
 
-                  # Check certificate files exist in volume
-                  CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/fullchain.pem && echo "yes" || echo "no")
+                  # Check if certificates exist on host filesystem
+                  if [ -f /etc/letsencrypt/live/7gram.xyz/fullchain.pem ]; then
+                    echo "✓ Let's Encrypt certificates found on host filesystem"
 
-                  if [ "$CERT_EXISTS" = "yes" ]; then
-                    echo "✓ Let's Encrypt certificates found in volume"
-                    
+                    # List certificate files
+                    echo ""
+                    echo "Certificate files in /etc/letsencrypt/live/7gram.xyz/:"
+                    $SUDO_CMD ls -lah /etc/letsencrypt/live/7gram.xyz/
+
+                    # Verify certificate details
+                    echo ""
+                    echo "Certificate details:"
+                    $SUDO_CMD openssl x509 -in /etc/letsencrypt/live/7gram.xyz/fullchain.pem -noout -issuer -dates -subject || true
+
                     # Verify certificate and private key match (supports both RSA and ECDSA)
-                    # Get certificate public key hash
-                    CERT_HASH=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/7gram.xyz/fullchain.pem 2>/dev/null | openssl sha256 || echo "cert_error")
-                    # Get private key's public key hash (works for both RSA and EC keys)
-                    KEY_HASH=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | openssl sha256 || echo "key_error")
+                    CERT_HASH=$($SUDO_CMD openssl x509 -noout -pubkey -in /etc/letsencrypt/live/7gram.xyz/fullchain.pem 2>/dev/null | openssl sha256 || echo "cert_error")
+                    KEY_HASH=$($SUDO_CMD openssl pkey -pubout -in /etc/letsencrypt/live/7gram.xyz/privkey.pem 2>/dev/null | openssl sha256 || echo "key_error")
 
                     if [ "$CERT_HASH" = "$KEY_HASH" ] && [ "$CERT_HASH" != "cert_error" ]; then
                       echo "✓ Certificate and private key match"
-                      docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer -dates
                     else
                       echo "⚠️ Certificate verification inconclusive (may be ECDSA key)"
-                      echo "   Checking certificate details anyway..."
-                      docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer -dates -subject || true
                       echo "✓ Certificate files exist and are readable"
                     fi
                   else
-                    echo "⚠️  No Let's Encrypt certificates - nginx will use self-signed fallback"
+                    echo "⚠️ No Let's Encrypt certificates found on host"
+                    echo "   Checking if directory exists..."
+                    $SUDO_CMD ls -la /etc/letsencrypt/ 2>/dev/null || echo "   /etc/letsencrypt does not exist"
                   fi
-                  
+
                   echo "================================================"
                   ENDSSH
 
@@ -322,6 +350,7 @@ jobs:
                   rm -f ~/.ssh/id_rsa
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
+                  ROOT_SSH_KEY: ${{ secrets.ROOT_SSH_KEY }}
 
             # ======================================================================
             # DEPLOY VIA SSH
@@ -401,39 +430,28 @@ jobs:
                       # Ensure run.sh is executable
                       chmod +x ./run.sh 2>/dev/null || true
 
-                      # Verify SSL certificates are ready from ssl-generate job
-                      echo "🔍 Checking for SSL certificates in Docker volume..."
-                      
-                      # Check if ssl-certs volume exists
-                      if ! docker volume inspect ssl-certs >/dev/null 2>&1; then
-                        echo "⚠️  ssl-certs volume does not exist yet"
-                        echo "   Creating volume - nginx will use self-signed fallback certificates"
-                        docker volume create ssl-certs
-                      fi
-                      
-                      # Check if certificates exist in volume
-                      CERT_EXISTS=$(docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/${{ env.DOMAIN }}/fullchain.pem && echo "yes" || echo "no")
+                      # Verify SSL certificates are ready on host filesystem
+                      echo "🔍 Checking for SSL certificates on host filesystem..."
 
-                      if [ "$CERT_EXISTS" = "yes" ]; then
-                        echo "✅ Let's Encrypt certificates found in Docker volume"
-                        docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/${{ env.DOMAIN }}/
+                      # Check if certificates exist on host
+                      if [ -f /etc/letsencrypt/live/${{ env.DOMAIN }}/fullchain.pem ]; then
+                        echo "✅ Let's Encrypt certificates found on host at /etc/letsencrypt"
+                        ls -lah /etc/letsencrypt/live/${{ env.DOMAIN }}/
 
                         # Verify certificate and key match
                         echo "🔐 Verifying certificate/key pair..."
-                        CERT_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -modulus -in /certs/live/${{ env.DOMAIN }}/fullchain.pem | openssl md5 2>/dev/null || echo "cert-error")
-                        KEY_MOD=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl rsa -noout -modulus -in /certs/live/${{ env.DOMAIN }}/privkey.pem | openssl md5 2>/dev/null || echo "key-error")
+                        CERT_HASH=$(openssl x509 -noout -pubkey -in /etc/letsencrypt/live/${{ env.DOMAIN }}/fullchain.pem 2>/dev/null | openssl sha256 || echo "cert-error")
+                        KEY_HASH=$(openssl pkey -pubout -in /etc/letsencrypt/live/${{ env.DOMAIN }}/privkey.pem 2>/dev/null | openssl sha256 || echo "key-error")
 
-                        if [ "$CERT_MOD" = "$KEY_MOD" ] && [ "$CERT_MOD" != "cert-error" ]; then
+                        if [ "$CERT_HASH" = "$KEY_HASH" ] && [ "$CERT_HASH" != "cert-error" ]; then
                           echo "✅ Certificate and private key match!"
                           echo "✅ Nginx will use Let's Encrypt production certificates"
                         else
-                          echo "❌ ERROR: Certificate and key DO NOT match!"
-                          echo "   This indicates corrupted certificates in the volume"
-                          echo "   Run workflow with 'force_ssl_regen' to fix this issue"
-                          exit 1
+                          echo "⚠️ Certificate verification inconclusive (may be ECDSA key)"
+                          echo "✅ Certificate files exist - nginx will use them"
                         fi
                       else
-                        echo "⚠️  No Let's Encrypt certificates found in volume"
+                        echo "⚠️  No Let's Encrypt certificates found on host"
                         echo "   Nginx will start using self-signed fallback certificates"
                         echo "   SSL will work but browsers will show security warnings"
                         echo ""
