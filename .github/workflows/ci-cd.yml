@@ -160,15 +160,19 @@ jobs:
     deploy:
         name: 🚀 Deploy to Freddy
         runs-on: ubuntu-latest
-        timeout-minutes: 20
-        needs: [dns-update]
+        timeout-minutes: 30
+        needs: dns-update
+        outputs:
+            cert_exists: ${{ steps.check-certs.outputs.cert_exists }}
+            needs_renewal: ${{ steps.check-certs.outputs.needs_renewal }}
+            expiry_date: ${{ steps.check-certs.outputs.expiry_date }}
+            days_until_expiry: ${{ steps.check-certs.outputs.days_until_expiry }}
         if: |
             always() &&
             (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
             (
-                github.event_name == 'push' ||
-                github.event_name == 'schedule' ||
-                (github.event_name == 'workflow_dispatch' && !inputs.skip_deploy)
+              github.event_name == 'push' ||
+              github.event_name == 'workflow_dispatch' && inputs.skip_deploy != true
             )
 
         steps:
@@ -218,7 +222,7 @@ jobs:
                   echo "→ Removing ssl-certs Docker volume..."
                   docker volume rm ssl-certs 2>/dev/null || true
                   docker volume rm freddy_ssl-certs 2>/dev/null || true
-                  
+
                   echo "→ Creating fresh ssl-certs volume..."
                   docker volume create ssl-certs
 
@@ -233,8 +237,91 @@ jobs:
               env:
                   SSH_KEY: ${{ secrets.SSH_KEY }}
 
+            - name: 🔍 Check existing SSL certificates
+              id: check-certs
+              run: |
+                  echo "🔍 Checking existing SSL certificates..."
+
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  NEEDS_RENEWAL="false"
+                  CERT_INFO=""
+
+                  CERT_CHECK=$(ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
+
+                  # Check if ssl-certs volume exists and has certificates
+                  if docker volume inspect ssl-certs >/dev/null 2>&1; then
+                    if docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/fullchain.pem 2>/dev/null; then
+                      # Get certificate expiry date
+                      EXPIRY_DATE=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -enddate 2>/dev/null | cut -d= -f2)
+                      EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
+                      CURRENT_EPOCH=$(date +%s)
+                      DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+
+                      # Get issuer to determine cert type
+                      ISSUER=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer 2>/dev/null)
+
+                      echo "CERT_EXISTS=true"
+                      echo "EXPIRY_DATE=$EXPIRY_DATE"
+                      echo "DAYS_UNTIL_EXPIRY=$DAYS_UNTIL_EXPIRY"
+                      echo "ISSUER=$ISSUER"
+
+                      # Renew if less than 30 days remaining
+                      if [ "$DAYS_UNTIL_EXPIRY" -lt 30 ]; then
+                        echo "NEEDS_RENEWAL=true"
+                      else
+                        echo "NEEDS_RENEWAL=false"
+                      fi
+                      exit 0
+                    fi
+                  fi
+
+                  echo "CERT_EXISTS=false"
+                  echo "NEEDS_RENEWAL=true"
+                  ENDSSH
+                  )
+
+                  # Parse the output
+                  CERT_EXISTS=$(echo "$CERT_CHECK" | grep "CERT_EXISTS=" | cut -d= -f2)
+                  EXPIRY_DATE=$(echo "$CERT_CHECK" | grep "EXPIRY_DATE=" | cut -d= -f2-)
+                  DAYS_UNTIL_EXPIRY=$(echo "$CERT_CHECK" | grep "DAYS_UNTIL_EXPIRY=" | cut -d= -f2)
+                  ISSUER=$(echo "$CERT_CHECK" | grep "ISSUER=" | cut -d= -f2-)
+                  NEEDS_RENEWAL=$(echo "$CERT_CHECK" | grep "NEEDS_RENEWAL=" | cut -d= -f2)
+
+                  # Clean up SSH key
+                  rm -f ~/.ssh/id_rsa
+
+                  # Set outputs
+                  echo "cert_exists=$CERT_EXISTS" >> $GITHUB_OUTPUT
+                  echo "needs_renewal=$NEEDS_RENEWAL" >> $GITHUB_OUTPUT
+                  echo "expiry_date=$EXPIRY_DATE" >> $GITHUB_OUTPUT
+                  echo "days_until_expiry=$DAYS_UNTIL_EXPIRY" >> $GITHUB_OUTPUT
+
+                  # Display results
+                  if [ "$CERT_EXISTS" = "true" ]; then
+                    echo "✅ Existing certificates found"
+                    echo "📅 Expires: $EXPIRY_DATE"
+                    echo "⏰ Days until expiry: $DAYS_UNTIL_EXPIRY"
+                    echo "🔐 Issuer: $ISSUER"
+
+                    if [ "$NEEDS_RENEWAL" = "true" ]; then
+                      echo "⚠️  Certificates need renewal (< 30 days remaining)"
+                    else
+                      echo "✅ Certificates are still valid (> 30 days remaining)"
+                    fi
+                  else
+                    echo "⚠️  No existing certificates found - will generate new ones"
+                  fi
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
+
             - name: 🔐 Generate SSL Certificates (Let's Encrypt + Cloudflare DNS)
               id: certbot
+              if: steps.check-certs.outputs.needs_renewal == 'true' || inputs.force_ssl_regen == true
               uses: nuniesmith/actions/.github/actions/ssl-certbot-cloudflare@main
               with:
                   domain: ${{ env.DOMAIN }}
@@ -252,10 +339,12 @@ jobs:
                   ssh-port: ${{ secrets.SSH_PORT || '22' }}
                   ssh-user: ${{ secrets.SSH_USER || 'actions' }}
                   ssh-key: ${{ secrets.SSH_KEY }}
+                  root-ssh-key: ${{ secrets.ROOT_SSH_KEY }}
                   deploy-method: docker-volume
                   docker-volume-name: ssl-certs
 
             - name: ✅ Verify SSL certificates in Docker volume
+              if: steps.certbot.outcome == 'success' || steps.check-certs.outputs.cert_exists == 'true'
               run: |
                   echo "🔍 Verifying SSL certificates in Docker volume..."
                   echo "Note: Let's Encrypt uses ECDSA P-256 keys (241 bytes) - this is normal and secure"
@@ -275,30 +364,30 @@ jobs:
                   # Check if ssl-certs volume exists
                   if docker volume inspect ssl-certs >/dev/null 2>&1; then
                     echo "✓ ssl-certs volume exists"
-                    
+
                     # Check if certificates exist in volume
                     if docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/fullchain.pem 2>/dev/null; then
                       echo "✓ Let's Encrypt certificates found in volume"
-                      
+
                       # List certificate files
                       echo ""
                       echo "Certificate files in ssl-certs volume:"
                       docker run --rm -v ssl-certs:/certs:ro busybox:latest ls -lah /certs/live/7gram.xyz/
-                      
+
                       # Verify certificate details
                       echo ""
                       echo "Certificate details:"
                       docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer -dates -subject 2>/dev/null || true
-                      
+
                       # Verify certificate and private key match (supports both RSA and ECDSA)
                       echo ""
                       echo "Verifying certificate/key pair..."
                       CERT_PUBKEY=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/7gram.xyz/fullchain.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
                       KEY_PUBKEY=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
-                      
+
                       if [ -n "$CERT_PUBKEY" ] && [ "$CERT_PUBKEY" = "$KEY_PUBKEY" ]; then
                         echo "✓ Certificate and private key match (public key verified)"
-                        
+
                         # Detect key type
                         KEY_TYPE=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -text -noout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | head -1)
                         echo "  Key type: $KEY_TYPE"
@@ -413,17 +502,17 @@ jobs:
                           # Verify certificate details
                           echo "🔐 Certificate details:"
                           docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/${{ env.DOMAIN }}/fullchain.pem -noout -issuer -dates 2>/dev/null || true
-                          
+
                           # Verify certificate and key match
                           CERT_PK=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/${{ env.DOMAIN }}/fullchain.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
                           KEY_PK=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/${{ env.DOMAIN }}/privkey.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
-                          
+
                           if [ -n "$CERT_PK" ] && [ "$CERT_PK" = "$KEY_PK" ]; then
                             echo "✅ Certificate and private key verified (match confirmed)"
                           else
                             echo "✅ Certificates present (will be validated by nginx on startup)"
                           fi
-                          
+
                           echo "✅ Nginx will use Let's Encrypt production certificates"
                         else
                           echo "⚠️  No Let's Encrypt certificates found in volume"
@@ -574,8 +663,28 @@ jobs:
                   echo "- Freddy's nginx reverse proxies Sullivan services over Tailscale" >> $GITHUB_STEP_SUMMARY
                   echo "- SSL certificates cover both Freddy and Sullivan subdomains" >> $GITHUB_STEP_SUMMARY
 
+            - name: 📋 SSL Certificate Summary
+              run: |
+                  echo "## 🔐 SSL Certificate Status" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+
+                  if [ "${{ needs.deploy.outputs.cert_exists }}" == "true" ]; then
+                    echo "✅ **Certificate Status:** Valid" >> $GITHUB_STEP_SUMMARY
+                    echo "📅 **Expires:** ${{ needs.deploy.outputs.expiry_date }}" >> $GITHUB_STEP_SUMMARY
+                    echo "⏰ **Days Remaining:** ${{ needs.deploy.outputs.days_until_expiry }}" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+
+                    if [ "${{ needs.deploy.outputs.needs_renewal }}" == "true" ]; then
+                      echo "⚠️ Certificates were renewed during this deployment" >> $GITHUB_STEP_SUMMARY
+                    else
+                      echo "✅ Certificates are valid - renewal skipped" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  else
+                    echo "⚠️ **Certificate Status:** New certificates generated" >> $GITHUB_STEP_SUMMARY
+                  fi
+
             - name: ❌ Fail on deployment error
               if: needs.deploy.result == 'failure'
               run: |
-                  echo "::error::Deployment failed"
+                  echo "❌ Deployment failed"
                   exit 1
