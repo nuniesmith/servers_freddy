@@ -444,28 +444,9 @@ jobs:
                         cd ~
                       fi
 
-                      # ============================================================
-                      # COMPREHENSIVE SSL CERTIFICATE CLEANUP
-                      # ============================================================
-                      echo ""
-                      echo "🧹 Cleaning up old/corrupted SSL certificates..."
-
-                      # Stop and remove nginx container specifically
-                      echo "  → Stopping nginx container..."
-                      docker stop nginx 2>/dev/null || true
-                      docker rm -f nginx 2>/dev/null || true
-
-                      # Remove ssl-certs Docker volume (forces fresh cert generation)
-                      echo "  → Removing ssl-certs Docker volume..."
-                      docker volume rm ssl-certs 2>/dev/null || true
-
-                      # Remove any dangling certificate-related volumes
-                      echo "  → Removing dangling volumes..."
-                      docker volume prune -f 2>/dev/null || true
-
-                      echo "✅ SSL cleanup complete - ready for fresh certificates"
-                      echo ""
-                      # ============================================================
+                      # Note: SSL certificate cleanup is handled by the 
+                      # force_ssl_regen workflow input. We don't remove certificates
+                      # here to preserve fresh certs from the SSL generation step.
 
                       # Handle git repository setup
                       cd ${{ env.PROJECT_PATH }}
