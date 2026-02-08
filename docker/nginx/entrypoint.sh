@@ -194,55 +194,31 @@ verify_certificates() {
         return 1
     fi
 
-    # Check if private key matches certificate
-    log_debug "Computing certificate modulus..."
-    local cert_modulus=$(openssl x509 -noout -modulus -in "$TARGET_DIR/fullchain.pem" 2>/dev/null | openssl md5)
-    local cert_modulus_exit=$?
-
-    log_debug "Computing private key modulus..."
-    local key_modulus=$(openssl rsa -noout -modulus -in "$TARGET_DIR/privkey.pem" 2>/dev/null | openssl md5)
-    local key_modulus_exit=$?
-
-    log_debug "Certificate modulus (exit=$cert_modulus_exit): $cert_modulus"
-    log_debug "Private key modulus (exit=$key_modulus_exit): $key_modulus"
-
-    if [ $cert_modulus_exit -ne 0 ]; then
-        log_error "Failed to compute certificate modulus"
+    # Check if private key matches certificate (supports both RSA and ECDSA)
+    log_debug "Verifying certificate and private key match..."
+    
+    # Extract public key from certificate
+    local cert_pubkey=$(openssl x509 -in "$TARGET_DIR/fullchain.pem" -noout -pubkey 2>/dev/null | openssl sha256)
+    local cert_exit=$?
+    
+    # Extract public key from private key
+    local key_pubkey=$(openssl pkey -in "$TARGET_DIR/privkey.pem" -pubout 2>/dev/null | openssl sha256)
+    local key_exit=$?
+    
+    log_debug "Certificate public key hash (exit=$cert_exit): $cert_pubkey"
+    log_debug "Private key public key hash (exit=$key_exit): $key_pubkey"
+    
+    if [ $cert_exit -ne 0 ] || [ $key_exit -ne 0 ]; then
+        log_error "Failed to extract public keys for verification"
         return 1
     fi
-
-    if [ $key_modulus_exit -ne 0 ]; then
-        log_error "Failed to compute private key modulus"
-        log_debug "Attempting to read key with different formats..."
-        # Try EC key
-        key_modulus=$(openssl ec -noout -modulus -in "$TARGET_DIR/privkey.pem" 2>/dev/null | openssl md5)
-        if [ $? -eq 0 ]; then
-            log_debug "Private key is EC format: $key_modulus"
-        else
-            log_error "Could not read private key in RSA or EC format"
-            return 1
-        fi
-    fi
-
-    if [ "$cert_modulus" != "$key_modulus" ]; then
+    
+    if [ "$cert_pubkey" != "$key_pubkey" ]; then
         log_error "Certificate and private key do not match!"
         log_error "This usually means:"
         log_error "  1. The wrong certificate/key pair is mounted"
         log_error "  2. Files were copied from different sources"
         log_error "  3. Certificate was regenerated but key wasn't"
-        log_debug "Checking source files in volume..."
-        if [ -f "$VOLUME_DIR/fullchain.pem" ] && [ -f "$VOLUME_DIR/privkey.pem" ]; then
-            local vol_cert_modulus=$(openssl x509 -noout -modulus -in "$VOLUME_DIR/fullchain.pem" 2>/dev/null | openssl md5)
-            local vol_key_modulus=$(openssl rsa -noout -modulus -in "$VOLUME_DIR/privkey.pem" 2>/dev/null | openssl md5)
-            log_debug "Volume cert modulus: $vol_cert_modulus"
-            log_debug "Volume key modulus: $vol_key_modulus"
-            if [ "$vol_cert_modulus" != "$vol_key_modulus" ]; then
-                log_error "✗ Mismatch is in the SOURCE files in $VOLUME_DIR"
-                log_error "  The mounted certificate files themselves don't match!"
-            else
-                log_error "✗ Mismatch occurred during copy"
-            fi
-        fi
         return 1
     fi
 

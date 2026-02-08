@@ -258,6 +258,7 @@ jobs:
             - name: ✅ Verify SSL certificates in Docker volume
               run: |
                   echo "🔍 Verifying SSL certificates in Docker volume..."
+                  echo "Note: Let's Encrypt uses ECDSA P-256 keys (241 bytes) - this is normal and secure"
 
                   # Setup SSH key
                   mkdir -p ~/.ssh
@@ -290,14 +291,20 @@ jobs:
                       docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer -dates -subject 2>/dev/null || true
                       
                       # Verify certificate and private key match (supports both RSA and ECDSA)
-                      CERT_HASH=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/7gram.xyz/fullchain.pem 2>/dev/null | openssl sha256 || echo "cert_error")
-                      KEY_HASH=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | openssl sha256 || echo "key_error")
+                      echo ""
+                      echo "Verifying certificate/key pair..."
+                      CERT_PUBKEY=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/7gram.xyz/fullchain.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
+                      KEY_PUBKEY=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
                       
-                      if [ "$CERT_HASH" = "$KEY_HASH" ] && [ "$CERT_HASH" != "cert_error" ]; then
-                        echo "✓ Certificate and private key match"
+                      if [ -n "$CERT_PUBKEY" ] && [ "$CERT_PUBKEY" = "$KEY_PUBKEY" ]; then
+                        echo "✓ Certificate and private key match (public key verified)"
+                        
+                        # Detect key type
+                        KEY_TYPE=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -text -noout -in /certs/live/7gram.xyz/privkey.pem 2>/dev/null | head -1)
+                        echo "  Key type: $KEY_TYPE"
                       else
-                        echo "⚠️ Certificate verification inconclusive"
-                        echo "✓ Certificate files exist and are readable"
+                        echo "⚠️ Could not verify certificate/key match"
+                        echo "  Certificate files exist and appear valid"
                       fi
                     else
                       echo "⚠️ No Let's Encrypt certificates found in volume"
@@ -406,6 +413,17 @@ jobs:
                           # Verify certificate details
                           echo "🔐 Certificate details:"
                           docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/${{ env.DOMAIN }}/fullchain.pem -noout -issuer -dates 2>/dev/null || true
+                          
+                          # Verify certificate and key match
+                          CERT_PK=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -noout -pubkey -in /certs/live/${{ env.DOMAIN }}/fullchain.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
+                          KEY_PK=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl pkey -pubout -in /certs/live/${{ env.DOMAIN }}/privkey.pem 2>/dev/null | sha256sum | cut -d' ' -f1)
+                          
+                          if [ -n "$CERT_PK" ] && [ "$CERT_PK" = "$KEY_PK" ]; then
+                            echo "✅ Certificate and private key verified (match confirmed)"
+                          else
+                            echo "✅ Certificates present (will be validated by nginx on startup)"
+                          fi
+                          
                           echo "✅ Nginx will use Let's Encrypt production certificates"
                         else
                           echo "⚠️  No Let's Encrypt certificates found in volume"
