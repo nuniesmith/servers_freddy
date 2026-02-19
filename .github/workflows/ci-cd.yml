@@ -436,6 +436,20 @@ jobs:
                       echo "📁 Ensuring project directory exists..."
                       mkdir -p $HOME/${{ env.PROJECT_PATH }}
 
+                      # Ensure all bind-mount directories for Docker volumes exist
+                      # Docker will NOT auto-create these for local driver bind mounts
+                      echo "📁 Ensuring volume mount directories exist..."
+                      sudo mkdir -p \
+                        /mnt/1tb/photos \
+                        /mnt/1tb/photoprism/storage \
+                        /mnt/1tb/photoprism/postgres \
+                        /mnt/1tb/nextcloud/html \
+                        /mnt/1tb/nextcloud/data \
+                        /mnt/1tb/nextcloud/postgres \
+                        /mnt/1tb/homeassistant
+                      # Nextcloud directories must be owned by www-data (UID 33)
+                      sudo chown -R 33:33 /mnt/1tb/nextcloud/html /mnt/1tb/nextcloud/data
+
                       # Stop existing services to release file locks
                       echo "🛑 Stopping existing services..."
                       if [ -d "$HOME/${{ env.PROJECT_PATH }}" ]; then
