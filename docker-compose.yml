@@ -33,6 +33,12 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/nextcloud/html
+    nextcloud_config:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/nextcloud/config
     nextcloud_data:
         driver: local
         driver_opts:
@@ -190,6 +196,7 @@ services:
             - OVERWRITECLIURL=https://nc.7gram.xyz
         volumes:
             - nextcloud_html:/var/www/html
+            - nextcloud_config:/var/www/html/config
             - nextcloud_data:/var/www/html/data
         ports:
             - "8080:80"
@@ -219,6 +226,7 @@ services:
             - TZ=${TZ:-America/Toronto}
         volumes:
             - nextcloud_html:/var/www/html
+            - nextcloud_config:/var/www/html/config
             - nextcloud_data:/var/www/html/data
         restart: unless-stopped
         depends_on:

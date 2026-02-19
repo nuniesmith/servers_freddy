@@ -599,10 +599,11 @@ jobs:
                           /mnt/photoprism/storage \
                           /mnt/photoprism/postgres \
                           /mnt/nextcloud/html \
+                          /mnt/nextcloud/config \
                           /mnt/nextcloud/data \
                           /mnt/nextcloud/postgres \
                           /mnt/homeassistant \
-                        && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/data \
+                        && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
 
                       # Reset Nextcloud PostgreSQL database if requested
