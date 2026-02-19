@@ -375,11 +375,8 @@ jobs:
                   # Ensure ssl-certs volume exists
                   docker volume inspect ssl-certs >/dev/null 2>&1 || docker volume create ssl-certs
 
-                  # Extract certificates into the volume
-                  docker run --rm -v ssl-certs:/certs -v /tmp:/tmp busybox sh -c "cd /certs && tar -xzf /tmp/ssl-certs.tar.gz && ls -la /certs/live/7gram.xyz/ && echo 'Certificates deployed successfully'"
-
-                  # Clean up temp file
-                  rm -f /tmp/ssl-certs.tar.gz
+                  # Extract certificates into the volume and clean up in one step
+                  docker run --rm -v ssl-certs:/certs -v /tmp:/tmp busybox sh -c "cd /certs && tar -xzf /tmp/ssl-certs.tar.gz && ls -la /certs/live/7gram.xyz/ && rm -f /tmp/ssl-certs.tar.gz && echo 'Certificates deployed successfully'"
 
                   echo "✅ Certificates deployed to ssl-certs Docker volume"
                   SCRIPTEOF
