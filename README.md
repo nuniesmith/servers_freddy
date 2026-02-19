@@ -66,7 +66,13 @@ sudo ./scripts/cert-manager.sh test-renewal
    cd ~/freddy
    ```
 
-2. **Setup environment:**
+2. **Configure GitHub Secrets:**
+   
+   The `.env` file is automatically generated during CI/CD deployment from GitHub Secrets.
+   
+   **📖 See [GitHub Secrets Documentation](docs/GITHUB_SECRETS.md) for the complete list of required secrets**
+   
+   For manual deployment, you can create `.env` manually:
    ```bash
    cp .env.example .env
    nano .env  # Configure your settings
@@ -124,20 +130,21 @@ The project uses GitHub Actions for automated deployment:
 3. **Deploy** - Pulls latest code and restarts services
 4. **Health Check** - Verifies all services are running
 
-### Required GitHub Secrets
+### Automated Environment Configuration
 
-```
-CLOUDFLARE_EMAIL          # Cloudflare account email
-CLOUDFLARE_API_KEY        # Cloudflare Global API Key
-CERTBOT_EMAIL            # Email for Let's Encrypt notifications
-FREDDY_TAILSCALE_IP      # Freddy server Tailscale IP
-SULLIVAN_TAILSCALE_IP    # Sullivan server Tailscale IP
-SSH_KEY                  # SSH private key for deployment
-SSH_USER                 # SSH username
-SSH_PORT                 # SSH port (default: 22)
-TAILSCALE_OAUTH_CLIENT_ID
-TAILSCALE_OAUTH_SECRET
-```
+The CI/CD workflow automatically generates the `.env` file on the server from GitHub Secrets. No manual `.env` configuration needed!
+
+**📖 See [GitHub Secrets Documentation](docs/GITHUB_SECRETS.md) for:**
+- Complete list of required secrets
+- How to set up secrets in GitHub
+- Security best practices
+- Troubleshooting guide
+
+**Key Features:**
+- ✅ Automatic `.env` generation from secrets
+- ✅ Backup of existing `.env` before updates
+- ✅ Secure password management
+- ✅ No secrets committed to repository
 
 **📖 See [Deployment Summary](docs/DEPLOYMENT_SUMMARY.md) for deployment details**
 
@@ -249,6 +256,7 @@ docker ps
 
 ## 📚 Documentation
 
+- **[GitHub Secrets Setup](docs/GITHUB_SECRETS.md)** - Required secrets and automatic .env generation
 - **[SSL Setup Guide](docs/SSL_SETUP.md)** - Complete SSL certificate management documentation
 - **[Deployment Summary](docs/DEPLOYMENT_SUMMARY.md)** - Recent changes and deployment guide
 - **[Deployment Checklist](DEPLOYMENT_CHECKLIST.md)** - Pre/post deployment verification
