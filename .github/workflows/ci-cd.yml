@@ -47,7 +47,7 @@ on:
                 type: boolean
                 default: false
             reset_nextcloud_db:
-                description: "Reset Nextcloud PostgreSQL database (fixes password authentication issues)"
+                description: "Full Nextcloud reset: clears database, config, and app files (preserves user data)"
                 required: false
                 type: boolean
                 default: false
@@ -606,17 +606,26 @@ jobs:
                         && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
 
-                      # Reset Nextcloud PostgreSQL database if requested
-                      # This fixes password authentication issues when credentials don't match existing database
+                      # Full Nextcloud reset if requested
+                      # Clears postgres, config, and html so the entrypoint does a clean install.
+                      # User data in /mnt/1tb/nextcloud/data is NOT touched.
                       if [ "${{ inputs.reset_nextcloud_db }}" = "true" ]; then
-                        echo "🔄 Resetting Nextcloud PostgreSQL database..."
-                        echo "   ⚠️  This will DELETE all Nextcloud database data!"
-                        echo "   (Fixes password mismatch issues)"
+                        echo "🔄 Performing full Nextcloud reset..."
+                        echo "   ⚠️  This will DELETE database, config, and app files!"
+                        echo "   ℹ️  User data in /mnt/1tb/nextcloud/data is preserved."
                         docker stop nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
                         docker rm nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
                         docker run --rm -v /mnt/1tb:/mnt busybox sh -c "\
-                          rm -rf /mnt/nextcloud/postgres/* \
-                          && echo '  ✅ Nextcloud PostgreSQL data reset (will reinitialize with current credentials)'"
+                          echo '  → Removing PostgreSQL data...' \
+                          && rm -rf /mnt/nextcloud/postgres/* \
+                          && echo '  → Removing stale config (config.php)...' \
+                          && rm -rf /mnt/nextcloud/config/* \
+                          && echo '  → Removing app files (will be re-extracted from image)...' \
+                          && rm -rf /mnt/nextcloud/html/* \
+                          && echo '  → Re-creating directories with correct ownership...' \
+                          && mkdir -p /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data /mnt/nextcloud/postgres \
+                          && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
+                          && echo '  ✅ Nextcloud full reset complete (will reinitialize on next start)'"
                       fi
 
                       # Stop existing services to release file locks

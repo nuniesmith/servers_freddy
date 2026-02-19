@@ -451,24 +451,28 @@ cmd_scan() {
 }
 
 cmd_reset_nextcloud_db() {
-    print_header "🔄 Reset Nextcloud PostgreSQL Database"
+    print_header "🔄 Reset Nextcloud Installation"
 
     echo ""
-    print_warning "⚠️  WARNING: This will DELETE all Nextcloud database data!"
+    print_warning "⚠️  WARNING: This will perform a FULL Nextcloud reset!"
     echo ""
     echo "This operation will:"
     echo "  1. Stop Nextcloud and its database containers"
-    echo "  2. Delete all PostgreSQL data for Nextcloud"
-    echo "  3. Allow the database to reinitialize with current credentials"
+    echo "  2. Delete all PostgreSQL data      (/mnt/1tb/nextcloud/postgres)"
+    echo "  3. Delete Nextcloud app files       (/mnt/1tb/nextcloud/html)"
+    echo "  4. Delete Nextcloud config          (/mnt/1tb/nextcloud/config)"
+    echo "  5. Re-extract fresh app files from the Docker image on next start"
+    echo "  6. Reinitialize the database with current .env credentials"
     echo ""
     echo "This is useful when:"
+    echo "  - You get 'Configuration was not read or initialized correctly'"
     echo "  - You have a password authentication error"
     echo "  - Database credentials don't match environment variables"
-    echo "  - You want a fresh Nextcloud installation"
+    echo "  - You want a completely fresh Nextcloud installation"
     echo ""
     print_warning "User files in /mnt/1tb/nextcloud/data will NOT be affected"
     echo ""
-    read -p "Type 'YES' to confirm database reset: " -r
+    read -p "Type 'YES' to confirm full reset: " -r
     echo
 
     if [[ $REPLY != "YES" ]]; then
@@ -489,13 +493,43 @@ cmd_reset_nextcloud_db() {
         return 1
     fi
 
-    print_success "Nextcloud database reset complete"
+    print_info "Removing Nextcloud config (stale config.php)..."
+    if docker run --rm -v /mnt/1tb:/mnt busybox sh -c "rm -rf /mnt/nextcloud/config/*"; then
+        print_success "Config removed"
+    else
+        print_error "Failed to remove config"
+        print_info "You may need to run: sudo rm -rf /mnt/1tb/nextcloud/config/*"
+        return 1
+    fi
+
+    print_info "Removing Nextcloud app files (will be re-extracted from image)..."
+    if docker run --rm -v /mnt/1tb:/mnt busybox sh -c "rm -rf /mnt/nextcloud/html/*"; then
+        print_success "App files removed"
+    else
+        print_error "Failed to remove app files"
+        print_info "You may need to run: sudo rm -rf /mnt/1tb/nextcloud/html/*"
+        return 1
+    fi
+
+    # Re-create directories with correct ownership (www-data = UID 33)
+    print_info "Re-creating directories with correct ownership..."
+    docker run --rm -v /mnt/1tb:/mnt busybox sh -c "\
+        mkdir -p /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data /mnt/nextcloud/postgres \
+        && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
+        && echo 'Directories ready'"
+    print_success "Directories recreated"
+
+    print_success "Nextcloud full reset complete"
     echo ""
     print_info "Next steps:"
     echo "  1. Start services: ./run.sh start"
     echo "  2. Wait for Nextcloud to initialize (may take 2-3 minutes)"
     echo "  3. Check logs: ./run.sh logs nextcloud"
     echo "  4. Verify status: ./run.sh occ status"
+    echo ""
+    print_info "The entrypoint will re-extract Nextcloud from the Docker image,"
+    print_info "create a fresh config.php, and run the post-installation hook."
+    print_info "Custom configs (reverse-proxy, tuning) are applied automatically."
 }
 
 cmd_ssl_renew() {
