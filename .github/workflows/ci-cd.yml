@@ -55,7 +55,7 @@ permissions:
 
 env:
     SERVER_NAME: freddy
-    PROJECT_PATH: $HOME/freddy
+    PROJECT_PATH: freddy
     DOMAIN: 7gram.xyz
 
     # Freddy DNS records (services hosted on freddy)
@@ -172,6 +172,7 @@ jobs:
             (needs.dns-update.result == 'success' || needs.dns-update.result == 'skipped') &&
             (
               github.event_name == 'push' ||
+              github.event_name == 'schedule' ||
               github.event_name == 'workflow_dispatch' && inputs.skip_deploy != true
             )
 
@@ -427,19 +428,18 @@ jobs:
                   project-path: ${{ env.PROJECT_PATH }}
                   git-pull: false
                   git-branch: ${{ github.ref_name }}
-                  docker-pull: false
                   docker-prune: false
                   pre-deploy-command: |
                       echo "🏠 Deploying to Freddy server..."
 
                       # Create project directory if it doesn't exist
                       echo "📁 Ensuring project directory exists..."
-                      mkdir -p ${{ env.PROJECT_PATH }}
+                      mkdir -p $HOME/${{ env.PROJECT_PATH }}
 
                       # Stop existing services to release file locks
                       echo "🛑 Stopping existing services..."
-                      if [ -d "${{ env.PROJECT_PATH }}" ]; then
-                        cd ${{ env.PROJECT_PATH }}
+                      if [ -d "$HOME/${{ env.PROJECT_PATH }}" ]; then
+                        cd $HOME/${{ env.PROJECT_PATH }}
                         ./run.sh stop 2>/dev/null || docker compose down 2>/dev/null || true
                         cd ~
                       fi
@@ -449,7 +449,7 @@ jobs:
                       # here to preserve fresh certs from the SSL generation step.
 
                       # Handle git repository setup
-                      cd ${{ env.PROJECT_PATH }}
+                      cd $HOME/${{ env.PROJECT_PATH }}
 
                       if [ -d .git ] && git status >/dev/null 2>&1; then
                         echo "📥 Updating existing repository..."
@@ -462,9 +462,9 @@ jobs:
                       else
                         echo "📥 Cloning repository (first deployment)..."
                         cd ~
-                        rm -rf ${{ env.PROJECT_PATH }}
-                        git clone https://github.com/${{ github.repository }}.git ${{ env.PROJECT_PATH }}
-                        cd ${{ env.PROJECT_PATH }}
+                        rm -rf $HOME/${{ env.PROJECT_PATH }}
+                        git clone https://github.com/${{ github.repository }}.git $HOME/${{ env.PROJECT_PATH }}
+                        cd $HOME/${{ env.PROJECT_PATH }}
                         git checkout ${{ github.ref_name }}
                       fi
 
@@ -513,7 +513,8 @@ jobs:
                       fi
 
                   deploy-command: |
-                      cd ${{ env.PROJECT_PATH }}
+                      # Action already cd's to PROJECT_PATH; use absolute path as safeguard
+                      cd $HOME/${{ env.PROJECT_PATH }}
 
                       # Stop existing services
                       echo "🐳 Stopping existing services..."
@@ -547,7 +548,7 @@ jobs:
                       echo "✅ Deployment complete"
 
                   post-deploy-command: |
-                      cd ${{ env.PROJECT_PATH }}
+                      cd $HOME/${{ env.PROJECT_PATH }}
 
                       echo ""
                       echo "📊 Service Status:"
