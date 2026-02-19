@@ -15,6 +15,8 @@
 #   ./run.sh pull            # Pull latest images
 #   ./run.sh health          # Check service health
 #   ./run.sh clean           # Clean up unused Docker resources
+#   ./run.sh occ <args>      # Run Nextcloud occ command as www-data
+#   ./run.sh scan [path]     # Rescan Nextcloud files (all or specific path)
 # ============================================================================
 
 set -e
@@ -191,7 +193,7 @@ cmd_pull() {
 cmd_health() {
     print_header "🏥 Freddy Health Check"
 
-    local services=("nginx" "photoprism" "nextcloud" "homeassistant" "audiobookshelf" "photoprism-postgres" "nextcloud-postgres")
+    local services=("nginx" "photoprism" "nextcloud" "nextcloud-cron" "homeassistant" "audiobookshelf" "photoprism-postgres" "nextcloud-postgres")
 
     for service in "${services[@]}"; do
         local status=$(docker inspect --format='{{.State.Health.Status}}' "$service" 2>/dev/null || echo "no-healthcheck")
@@ -401,6 +403,52 @@ EOF
     fi
 }
 
+cmd_occ() {
+    if [ $# -eq 0 ]; then
+        print_error "No occ command specified"
+        echo ""
+        print_info "Usage: ./run.sh occ <command> [args...]"
+        echo ""
+        echo "  Common commands:"
+        echo "    ./run.sh occ status                    # Show Nextcloud status"
+        echo "    ./run.sh occ files:scan --all          # Rescan all files"
+        echo "    ./run.sh occ files:scan -p <user>      # Rescan specific user"
+        echo "    ./run.sh occ maintenance:mode --on     # Enable maintenance mode"
+        echo "    ./run.sh occ maintenance:mode --off    # Disable maintenance mode"
+        echo "    ./run.sh occ app:list                  # List installed apps"
+        echo "    ./run.sh occ db:add-missing-indices    # Add missing DB indices"
+        echo "    ./run.sh occ config:list               # Show configuration"
+        echo "    ./run.sh occ user:list                 # List users"
+        exit 1
+    fi
+
+    print_info "Running: occ $*"
+    docker exec -u www-data nextcloud php /var/www/html/occ "$@"
+}
+
+cmd_scan() {
+    local path="${1:---all}"
+
+    print_header "📂 Nextcloud File Scan"
+
+    # Check if nextcloud container is running
+    if ! docker ps --format '{{.Names}}' | grep -q '^nextcloud$'; then
+        print_error "Nextcloud container is not running"
+        print_info "Start services first: ./run.sh start"
+        exit 1
+    fi
+
+    if [ "$path" = "--all" ] || [ "$path" = "all" ]; then
+        print_info "Scanning all user files..."
+        docker exec -u www-data nextcloud php /var/www/html/occ files:scan --all
+    else
+        print_info "Scanning path: $path"
+        docker exec -u www-data nextcloud php /var/www/html/occ files:scan --path="$path"
+    fi
+
+    print_success "File scan complete"
+}
+
 cmd_ssl_renew() {
     print_header "🔄 Renewing SSL Certificates"
 
@@ -481,6 +529,8 @@ Commands:
   clean             Clean up unused Docker resources
   shell <service>   Open shell in a container
   update            Pull images and recreate containers
+  occ <command>     Run Nextcloud occ command (as www-data)
+  scan [path|all]   Rescan Nextcloud files (default: --all)
   ssl-init [--force] Initialize SSL certificates with Let's Encrypt
   ssl-renew         Renew SSL certificates
   help              Show this help message
@@ -497,12 +547,17 @@ Examples:
   ./run.sh restart nginx      # Restart only nginx
   ./run.sh shell nextcloud    # Open shell in Nextcloud container
   ./run.sh update             # Update all services to latest
+  ./run.sh occ files:scan --all   # Rescan all Nextcloud files
+  ./run.sh occ status             # Show Nextcloud status
+  ./run.sh scan                   # Rescan all files (shorthand)
+  ./run.sh scan /user/files/Photos # Rescan specific path
 
 Services:
   nginx             - Reverse proxy (ports 80, 443)
   photoprism        - Photo management (port 2342)
   photoprism-postgres - PhotoPrism database
-  nextcloud         - Cloud storage (port 8443)
+  nextcloud         - Cloud storage (port 8080)
+  nextcloud-cron    - Nextcloud background jobs
   nextcloud-postgres - Nextcloud database
   homeassistant     - Home automation (port 8123)
   audiobookshelf    - Audiobook server (port 13378)
@@ -580,6 +635,12 @@ main() {
             ;;
         update|upgrade)
             cmd_update
+            ;;
+        occ)
+            cmd_occ "$@"
+            ;;
+        scan|rescan)
+            cmd_scan "$@"
             ;;
         ssl-init|ssl)
             cmd_ssl_init "$1"

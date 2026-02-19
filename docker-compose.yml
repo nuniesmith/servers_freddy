@@ -27,12 +27,12 @@ volumes:
             device: /mnt/1tb/photoprism/postgres
 
     # Cloud Storage volumes
-    nextcloud_config:
+    nextcloud_html:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: /mnt/1tb/nextcloud/config
+            device: /mnt/1tb/nextcloud/html
     nextcloud_data:
         driver: local
         driver_opts:
@@ -167,22 +167,32 @@ services:
     # =============================================================================
 
     # nextcloud - file sharing with postgres db
+    # Custom image based on official nextcloud:stable-apache
+    # Runs Apache as www-data; entrypoint runs as root for init only
     nextcloud:
-        image: lscr.io/linuxserver/nextcloud:latest
+        build:
+            context: .
+            dockerfile: ./docker/nextcloud/Dockerfile
         container_name: nextcloud
         environment:
-            - PUID=${PUID:-1000}
-            - PGID=${PGID:-1000}
             - TZ=${TZ:-America/Toronto}
             - POSTGRES_HOST=nextcloud-postgres
             - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
             - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
             - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
+            - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER:-admin}
+            - NEXTCLOUD_ADMIN_PASSWORD=${NEXTCLOUD_ADMIN_PASSWORD:-changeme}
+            - NEXTCLOUD_TRUSTED_DOMAINS=nc.7gram.xyz localhost nextcloud
+            - APACHE_DISABLE_REWRITE_IP=1
+            - TRUSTED_PROXIES=172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+            - OVERWRITEPROTOCOL=https
+            - OVERWRITEHOST=nc.7gram.xyz
+            - OVERWRITECLIURL=https://nc.7gram.xyz
         volumes:
-            - nextcloud_config:/config
-            - nextcloud_data:/data
+            - nextcloud_html:/var/www/html
+            - nextcloud_data:/var/www/html/data
         ports:
-            - "8443:443"
+            - "8080:80"
         restart: unless-stopped
         depends_on:
             nextcloud-postgres:
@@ -191,11 +201,30 @@ services:
             - freddy
         healthcheck:
             test:
-                ["CMD-SHELL", "curl -fk https://localhost/status.php || exit 1"]
+                ["CMD-SHELL", "curl -sf http://localhost/status.php || exit 1"]
             interval: 30s
             timeout: 10s
             retries: 3
-            start_period: 90s
+            start_period: 120s
+
+    # nextcloud cron - runs background jobs every 5 minutes
+    # Uses the same image and volumes as nextcloud but with the cron entrypoint
+    nextcloud-cron:
+        build:
+            context: .
+            dockerfile: ./docker/nextcloud/Dockerfile
+        container_name: nextcloud-cron
+        entrypoint: /cron.sh
+        environment:
+            - TZ=${TZ:-America/Toronto}
+        volumes:
+            - nextcloud_html:/var/www/html
+            - nextcloud_data:/var/www/html/data
+        restart: unless-stopped
+        depends_on:
+            - nextcloud
+        networks:
+            - freddy
 
     # postgres database for nextcloud
     nextcloud-postgres:
