@@ -438,17 +438,19 @@ jobs:
 
                       # Ensure all bind-mount directories for Docker volumes exist
                       # Docker will NOT auto-create these for local driver bind mounts
+                      # Uses a busybox container to create dirs as root (no sudo needed)
                       echo "📁 Ensuring volume mount directories exist..."
-                      sudo mkdir -p \
-                        /mnt/1tb/photos \
-                        /mnt/1tb/photoprism/storage \
-                        /mnt/1tb/photoprism/postgres \
-                        /mnt/1tb/nextcloud/html \
-                        /mnt/1tb/nextcloud/data \
-                        /mnt/1tb/nextcloud/postgres \
-                        /mnt/1tb/homeassistant
-                      # Nextcloud directories must be owned by www-data (UID 33)
-                      sudo chown -R 33:33 /mnt/1tb/nextcloud/html /mnt/1tb/nextcloud/data
+                      docker run --rm -v /mnt/1tb:/mnt busybox sh -c "\
+                        mkdir -p \
+                          /mnt/photos \
+                          /mnt/photoprism/storage \
+                          /mnt/photoprism/postgres \
+                          /mnt/nextcloud/html \
+                          /mnt/nextcloud/data \
+                          /mnt/nextcloud/postgres \
+                          /mnt/homeassistant \
+                        && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/data \
+                        && echo '  ✅ Volume directories ready'"
 
                       # Stop existing services to release file locks
                       echo "🛑 Stopping existing services..."
