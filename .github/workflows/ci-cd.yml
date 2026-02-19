@@ -350,14 +350,54 @@ jobs:
                   propagation-seconds: 60
                   staging: ${{ inputs.use_staging_certs || false }}
                   fallback-to-self-signed: true
-                  deploy-to-server: true
-                  ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
-                  ssh-port: ${{ secrets.SSH_PORT || '22' }}
-                  ssh-user: ${{ secrets.SSH_USER || 'actions' }}
-                  ssh-key: ${{ secrets.SSH_KEY }}
-                  root-ssh-key: ${{ secrets.ROOT_SSH_KEY }}
-                  deploy-method: docker-volume
-                  docker-volume-name: ssl-certs
+                  deploy-to-server: false
+
+            - name: 📦 Deploy certificates to Docker volume
+              id: deploy-certs
+              if: steps.certbot.outcome == 'success'
+              run: |
+                  echo "📦 Deploying SSL certificates to Freddy server..."
+
+                  # Setup SSH key
+                  mkdir -p ~/.ssh
+                  echo "$SSH_KEY" > ~/.ssh/id_rsa
+                  chmod 600 ~/.ssh/id_rsa
+
+                  # Transfer certificate tarball to server
+                  echo "📤 Transferring certificates..."
+                  scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -P ${{ secrets.SSH_PORT || '22' }} \
+                    /tmp/ssl-certs.tar.gz \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }}:/tmp/
+
+                  # Create deployment script
+                  cat > /tmp/deploy_certs.sh << 'SCRIPTEOF'
+                  #!/bin/bash
+                  # Ensure ssl-certs volume exists
+                  docker volume inspect ssl-certs >/dev/null 2>&1 || docker volume create ssl-certs
+
+                  # Extract certificates into the volume
+                  docker run --rm -v ssl-certs:/certs -v /tmp:/tmp busybox sh -c "cd /certs && tar -xzf /tmp/ssl-certs.tar.gz && ls -la /certs/live/7gram.xyz/ && echo 'Certificates deployed successfully'"
+
+                  # Clean up temp file
+                  rm -f /tmp/ssl-certs.tar.gz
+
+                  echo "✅ Certificates deployed to ssl-certs Docker volume"
+                  SCRIPTEOF
+
+                  # Deploy to Docker volume on server
+                  echo "🔐 Extracting certificates to Docker volume..."
+                  ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} \
+                    'bash -s' < /tmp/deploy_certs.sh
+
+                  # Clean up SSH key and local files
+                  rm -f ~/.ssh/id_rsa
+                  rm -f /tmp/ssl-certs.tar.gz
+                  rm -f /tmp/deploy_certs.sh
+
+                  echo "✅ SSL certificate deployment complete"
+              env:
+                  SSH_KEY: ${{ secrets.SSH_KEY }}
 
             - name: ✅ Verify SSL certificates in Docker volume
               if: steps.certbot.outcome == 'success' || steps.check-certs.outputs.cert_exists == 'true'
