@@ -46,15 +46,17 @@ LABEL description="Freddy Nextcloud – custom image with baked-in config"
 
 # ── Install additional packages ──────────────────────────────────────────────
 # ffmpeg            – video thumbnail / preview generation
-# imagemagick-extra – HEIC, SVG, and additional format support
+# imagemagick-extra – HEIC, SVG, and additional format support (version-agnostic
+#                     glob handles Debian Bookworm→Trixie package name changes)
 # procps            – ps, top (debugging inside the container)
 # sudo              – run occ as www-data from any shell user
-# busybox-static    – provides crond for the cron sidecar entrypoint
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libmagickcore-6.q16-7-extra \
     procps \
     sudo \
+    && apt-get install -y --no-install-recommends \
+    libmagickcore-*-extra 2>/dev/null \
+    || echo "ImageMagick extra formats package not found, skipping" \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Copy validated config files from builder ─────────────────────────────────
