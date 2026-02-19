@@ -245,6 +245,7 @@ jobs:
 
             - name: 🔍 Check existing SSL certificates
               id: check-certs
+              continue-on-error: true
               run: |
                   echo "🔍 Checking existing SSL certificates..."
 
@@ -253,59 +254,68 @@ jobs:
                   echo "$SSH_KEY" > ~/.ssh/id_rsa
                   chmod 600 ~/.ssh/id_rsa
 
-                  NEEDS_RENEWAL="false"
-                  CERT_INFO=""
-
-                  CERT_CHECK=$(ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
-                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} << 'ENDSSH'
-
+                  # Create temporary script for remote execution
+                  cat > /tmp/check_certs.sh << 'SCRIPTEOF'
+                  #!/bin/bash
                   # Check if ssl-certs volume exists and has certificates
                   if docker volume inspect ssl-certs >/dev/null 2>&1; then
                     if docker run --rm -v ssl-certs:/certs:ro busybox:latest test -f /certs/live/7gram.xyz/fullchain.pem 2>/dev/null; then
                       # Get certificate expiry date
-                      EXPIRY_DATE=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -enddate 2>/dev/null | cut -d= -f2)
-                      EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
-                      CURRENT_EPOCH=$(date +%s)
-                      DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+                      EXPIRY_DATE=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -enddate 2>/dev/null | cut -d= -f2 || echo "")
 
-                      # Get issuer to determine cert type
-                      ISSUER=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer 2>/dev/null)
+                      if [ -n "$EXPIRY_DATE" ]; then
+                        EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
+                        CURRENT_EPOCH=$(date +%s)
+                        DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
 
-                      echo "CERT_EXISTS=true"
-                      echo "EXPIRY_DATE=$EXPIRY_DATE"
-                      echo "DAYS_UNTIL_EXPIRY=$DAYS_UNTIL_EXPIRY"
-                      echo "ISSUER=$ISSUER"
+                        # Get issuer to determine cert type
+                        ISSUER=$(docker run --rm -v ssl-certs:/certs:ro alpine/openssl x509 -in /certs/live/7gram.xyz/fullchain.pem -noout -issuer 2>/dev/null || echo "")
 
-                      # Renew if less than 30 days remaining
-                      if [ "$DAYS_UNTIL_EXPIRY" -lt 30 ]; then
-                        echo "NEEDS_RENEWAL=true"
-                      else
-                        echo "NEEDS_RENEWAL=false"
+                        echo "CERT_EXISTS=true"
+                        echo "EXPIRY_DATE=$EXPIRY_DATE"
+                        echo "DAYS_UNTIL_EXPIRY=$DAYS_UNTIL_EXPIRY"
+                        echo "ISSUER=$ISSUER"
+
+                        # Renew if less than 30 days remaining
+                        if [ "$DAYS_UNTIL_EXPIRY" -lt 30 ]; then
+                          echo "NEEDS_RENEWAL=true"
+                        else
+                          echo "NEEDS_RENEWAL=false"
+                        fi
+                        exit 0
                       fi
-                      exit 0
                     fi
                   fi
 
                   echo "CERT_EXISTS=false"
                   echo "NEEDS_RENEWAL=true"
-                  ENDSSH
-                  )
+                  exit 0
+                  SCRIPTEOF
 
-                  # Parse the output
-                  CERT_EXISTS=$(echo "$CERT_CHECK" | grep "CERT_EXISTS=" | cut -d= -f2)
-                  EXPIRY_DATE=$(echo "$CERT_CHECK" | grep "EXPIRY_DATE=" | cut -d= -f2-)
-                  DAYS_UNTIL_EXPIRY=$(echo "$CERT_CHECK" | grep "DAYS_UNTIL_EXPIRY=" | cut -d= -f2)
-                  ISSUER=$(echo "$CERT_CHECK" | grep "ISSUER=" | cut -d= -f2-)
-                  NEEDS_RENEWAL=$(echo "$CERT_CHECK" | grep "NEEDS_RENEWAL=" | cut -d= -f2)
+                  # Run script on remote server
+                  CERT_CHECK=$(ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT || '22' }} \
+                    ${{ secrets.SSH_USER || 'actions' }}@${{ secrets.FREDDY_TAILSCALE_IP }} \
+                    'bash -s' < /tmp/check_certs.sh 2>/dev/null || echo "CERT_EXISTS=false
+                  NEEDS_RENEWAL=true")
+
+                  # Clean up temp file
+                  rm -f /tmp/check_certs.sh
+
+                  # Parse the output (use defaults if parsing fails)
+                  CERT_EXISTS=$(echo "$CERT_CHECK" | grep "CERT_EXISTS=" | cut -d= -f2 | head -1 || echo "false")
+                  EXPIRY_DATE=$(echo "$CERT_CHECK" | grep "EXPIRY_DATE=" | cut -d= -f2- | head -1 || echo "")
+                  DAYS_UNTIL_EXPIRY=$(echo "$CERT_CHECK" | grep "DAYS_UNTIL_EXPIRY=" | cut -d= -f2 | head -1 || echo "0")
+                  ISSUER=$(echo "$CERT_CHECK" | grep "ISSUER=" | cut -d= -f2- | head -1 || echo "")
+                  NEEDS_RENEWAL=$(echo "$CERT_CHECK" | grep "NEEDS_RENEWAL=" | cut -d= -f2 | head -1 || echo "true")
 
                   # Clean up SSH key
                   rm -f ~/.ssh/id_rsa
 
-                  # Set outputs
-                  echo "cert_exists=$CERT_EXISTS" >> $GITHUB_OUTPUT
-                  echo "needs_renewal=$NEEDS_RENEWAL" >> $GITHUB_OUTPUT
-                  echo "expiry_date=$EXPIRY_DATE" >> $GITHUB_OUTPUT
-                  echo "days_until_expiry=$DAYS_UNTIL_EXPIRY" >> $GITHUB_OUTPUT
+                  # Set outputs (always set, even if empty)
+                  echo "cert_exists=${CERT_EXISTS:-false}" >> $GITHUB_OUTPUT
+                  echo "needs_renewal=${NEEDS_RENEWAL:-true}" >> $GITHUB_OUTPUT
+                  echo "expiry_date=${EXPIRY_DATE:-unknown}" >> $GITHUB_OUTPUT
+                  echo "days_until_expiry=${DAYS_UNTIL_EXPIRY:-0}" >> $GITHUB_OUTPUT
 
                   # Display results
                   if [ "$CERT_EXISTS" = "true" ]; then
