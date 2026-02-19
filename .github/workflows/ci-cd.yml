@@ -55,7 +55,7 @@ permissions:
 
 env:
     SERVER_NAME: freddy
-    PROJECT_PATH: ~/freddy
+    PROJECT_PATH: $HOME/freddy
     DOMAIN: 7gram.xyz
 
     # Freddy DNS records (services hosted on freddy)
@@ -444,7 +444,7 @@ jobs:
                         cd ~
                       fi
 
-                      # Note: SSL certificate cleanup is handled by the 
+                      # Note: SSL certificate cleanup is handled by the
                       # force_ssl_regen workflow input. We don't remove certificates
                       # here to preserve fresh certs from the SSL generation step.
 
