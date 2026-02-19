@@ -516,13 +516,11 @@ jobs:
                       # Action already cd's to PROJECT_PATH; use absolute path as safeguard
                       cd $HOME/${{ env.PROJECT_PATH }}
 
-                      # Stop existing services
+                      # Stop and remove existing containers + networks
+                      # (run.sh stop only stops containers without removing them,
+                      #  causing name conflicts on docker compose up)
                       echo "🐳 Stopping existing services..."
-                      if [ -x "./run.sh" ]; then
-                        ./run.sh stop 2>/dev/null || true
-                      else
-                        docker compose down 2>/dev/null || true
-                      fi
+                      docker compose down --remove-orphans 2>/dev/null || true
 
                       # Ensure ssl-certs external volume exists
                       echo "🔐 Ensuring ssl-certs external volume exists..."
