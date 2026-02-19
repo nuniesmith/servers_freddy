@@ -46,6 +46,11 @@ on:
                 required: false
                 type: boolean
                 default: false
+            reset_nextcloud_db:
+                description: "Reset Nextcloud PostgreSQL database (fixes password authentication issues)"
+                required: false
+                type: boolean
+                default: false
     schedule:
         # Run SSL renewal check weekly on Sundays at 3am UTC
         - cron: "0 3 * * 0"
@@ -451,6 +456,19 @@ jobs:
                           /mnt/homeassistant \
                         && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
+
+                      # Reset Nextcloud PostgreSQL database if requested
+                      # This fixes password authentication issues when credentials don't match existing database
+                      if [ "${{ inputs.reset_nextcloud_db }}" = "true" ]; then
+                        echo "🔄 Resetting Nextcloud PostgreSQL database..."
+                        echo "   ⚠️  This will DELETE all Nextcloud database data!"
+                        echo "   (Fixes password mismatch issues)"
+                        docker stop nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
+                        docker rm nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
+                        docker run --rm -v /mnt/1tb:/mnt busybox sh -c "\
+                          rm -rf /mnt/nextcloud/postgres/* \
+                          && echo '  ✅ Nextcloud PostgreSQL data reset (will reinitialize with current credentials)'"
+                      fi
 
                       # Stop existing services to release file locks
                       echo "🛑 Stopping existing services..."

@@ -17,6 +17,7 @@
 #   ./run.sh clean           # Clean up unused Docker resources
 #   ./run.sh occ <args>      # Run Nextcloud occ command as www-data
 #   ./run.sh scan [path]     # Rescan Nextcloud files (all or specific path)
+#   ./run.sh reset-nextcloud-db  # Reset Nextcloud PostgreSQL database (fixes auth issues)
 # ============================================================================
 
 set -e
@@ -449,6 +450,54 @@ cmd_scan() {
     print_success "File scan complete"
 }
 
+cmd_reset_nextcloud_db() {
+    print_header "🔄 Reset Nextcloud PostgreSQL Database"
+
+    echo ""
+    print_warning "⚠️  WARNING: This will DELETE all Nextcloud database data!"
+    echo ""
+    echo "This operation will:"
+    echo "  1. Stop Nextcloud and its database containers"
+    echo "  2. Delete all PostgreSQL data for Nextcloud"
+    echo "  3. Allow the database to reinitialize with current credentials"
+    echo ""
+    echo "This is useful when:"
+    echo "  - You have a password authentication error"
+    echo "  - Database credentials don't match environment variables"
+    echo "  - You want a fresh Nextcloud installation"
+    echo ""
+    print_warning "User files in /mnt/1tb/nextcloud/data will NOT be affected"
+    echo ""
+    read -p "Type 'YES' to confirm database reset: " -r
+    echo
+
+    if [[ $REPLY != "YES" ]]; then
+        print_info "Cancelled - no changes made"
+        return 0
+    fi
+
+    print_info "Stopping Nextcloud containers..."
+    docker stop nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
+    docker rm nextcloud nextcloud-cron nextcloud-postgres 2>/dev/null || true
+
+    print_info "Removing PostgreSQL data..."
+    if docker run --rm -v /mnt/1tb:/mnt busybox sh -c "rm -rf /mnt/nextcloud/postgres/*"; then
+        print_success "PostgreSQL data removed"
+    else
+        print_error "Failed to remove PostgreSQL data"
+        print_info "You may need to run: sudo rm -rf /mnt/1tb/nextcloud/postgres/*"
+        return 1
+    fi
+
+    print_success "Nextcloud database reset complete"
+    echo ""
+    print_info "Next steps:"
+    echo "  1. Start services: ./run.sh start"
+    echo "  2. Wait for Nextcloud to initialize (may take 2-3 minutes)"
+    echo "  3. Check logs: ./run.sh logs nextcloud"
+    echo "  4. Verify status: ./run.sh occ status"
+}
+
 cmd_ssl_renew() {
     print_header "🔄 Renewing SSL Certificates"
 
@@ -531,6 +580,7 @@ Commands:
   update            Pull images and recreate containers
   occ <command>     Run Nextcloud occ command (as www-data)
   scan [path|all]   Rescan Nextcloud files (default: --all)
+  reset-nextcloud-db Reset Nextcloud PostgreSQL database (fixes auth issues)
   ssl-init [--force] Initialize SSL certificates with Let's Encrypt
   ssl-renew         Renew SSL certificates
   help              Show this help message
@@ -551,6 +601,7 @@ Examples:
   ./run.sh occ status             # Show Nextcloud status
   ./run.sh scan                   # Rescan all files (shorthand)
   ./run.sh scan /user/files/Photos # Rescan specific path
+  ./run.sh reset-nextcloud-db     # Reset Nextcloud database (fixes password errors)
 
 Services:
   nginx             - Reverse proxy (ports 80, 443)
@@ -641,6 +692,9 @@ main() {
             ;;
         scan|rescan)
             cmd_scan "$@"
+            ;;
+        reset-nextcloud-db|reset-nc-db)
+            cmd_reset_nextcloud_db
             ;;
         ssl-init|ssl)
             cmd_ssl_init "$1"
