@@ -533,17 +533,14 @@ jobs:
                         echo "  ✓ ssl-certs volume already exists"
                       fi
 
-                      # Rebuild nginx with --no-cache to pick up fresh certificates
-                      echo "🔨 Rebuilding nginx container with fresh certificates..."
-                      docker compose build --no-cache nginx
+                      # Build nginx image (uses cache — only rebuilds if Dockerfile/config changed)
+                      # SSL certs are mounted via the ssl-certs Docker volume, not baked in
+                      echo "🔨 Building nginx image..."
+                      docker compose build nginx
 
-                      # Pull other images
-                      echo "📥 Pulling latest images for other services..."
-                      docker compose pull --ignore-pull-failures
-
-                      # Start all services
-                      echo "🚀 Starting all services..."
-                      docker compose up -d --remove-orphans
+                      # Pull latest images and start all services in one pass
+                      echo "🚀 Pulling images & starting all services..."
+                      docker compose up -d --pull always --force-recreate --remove-orphans
 
                       echo "✅ Deployment complete"
 
