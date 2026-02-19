@@ -130,7 +130,6 @@ RUN { \
 # Increase Apache timeout for large file uploads behind nginx reverse proxy
 RUN { \
     echo 'Timeout 3600'; \
-    echo 'ProxyTimeout 3600'; \
     } > /etc/apache2/conf-available/timeout.conf \
     && a2enconf timeout
 
