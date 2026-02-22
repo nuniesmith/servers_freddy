@@ -289,9 +289,6 @@ secrets/
 projects/
 outputs/
 
-# Syncthing
-.stfolder/
-
 # ============================================================================
 # KEEP EMPTY DIRECTORIES
 # ============================================================================
@@ -312,12 +309,5 @@ perf.json
 config/homeassistant/.HA_VERSION
 config/homeassistant/home-assistant_v2.db
 config/homeassistant/home-assistant.log.1
-config/syncthing/cert.pem
-config/syncthing/config.xml
-config/syncthing/config.xml.v0
-config/syncthing/https-cert.pem
-config/syncthing/https-key.pem
-config/syncthing/key.pem
-config/syncthing/index-v2/main.db
 
 services/audiobookshelf/metadata/*

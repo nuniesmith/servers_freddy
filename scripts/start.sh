@@ -20,7 +20,7 @@ COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 # List of services in dependency order (DB services first)
-SERVICES=("photoprism-postgres" "nextcloud-postgres" "authelia-postgres" "redis" "authelia" "nginx" "nextcloud" "photoprism" "homeassistant" "audiobookshelf" "syncthing")
+SERVICES=("photoprism-postgres" "nextcloud-postgres" "authelia-postgres" "redis" "authelia" "nginx" "nextcloud" "photoprism" "homeassistant" "audiobookshelf")
 
 COMPOSE_CMD=""
 
@@ -415,9 +415,6 @@ create_directories() {
             homeassistant)
                 dirs+=("/mnt/1tb/homeassistant")
                 ;;
-            syncthing)
-                dirs+=("/mnt/1tb/syncthing/config" "/mnt/1tb/syncthing/data")
-                ;;
         esac
     done
 
@@ -493,7 +490,7 @@ health_checks() {
 	for service in "${target_services[@]}"; do
 		# Skip services that don't have health checks defined
 		case "$service" in
-			photoprism-postgres|nextcloud-postgres|authelia-postgres|redis|photoprism|nextcloud|homeassistant|authelia|nginx|audiobookshelf|syncthing)
+			photoprism-postgres|nextcloud-postgres|authelia-postgres|redis|photoprism|nextcloud|homeassistant|authelia|nginx|audiobookshelf)
 				local health_status
 				health_status=$(docker inspect --format='{{.State.Health.Status}}' "$service" 2>/dev/null || echo "no-healthcheck")
 				
@@ -577,13 +574,6 @@ health_checks() {
 					log WARN "Audiobookshelf endpoint: not reachable yet"
 				fi
 				;;
-			syncthing)
-				if curl -fsS http://localhost:8384/rest/noauth/health >/dev/null 2>&1; then
-					log INFO "Syncthing endpoint: ✓ http://localhost:8384"
-				else
-					log WARN "Syncthing endpoint: not reachable yet"
-				fi
-				;;
 			photoprism-postgres)
 				if docker exec photoprism-postgres pg_isready -U photoprism -d photoprism >/dev/null 2>&1; then
 					log INFO "Photoprism Postgres: ✓ healthy"
@@ -627,7 +617,7 @@ Usage: $(basename "$0") [options] [service]
 	service: all (default) or specific service names like:
 	         photoprism-postgres, nextcloud-postgres, authelia-postgres, 
 	         redis, authelia, nginx, nextcloud, photoprism, homeassistant,
-	         audiobookshelf, syncthing
+	         audiobookshelf
 
 Options:
 	--show-env        Print environment info and exit
@@ -751,7 +741,7 @@ main() {
 			for service in "${target_services[@]}"; do
 				# Check services that have healthchecks
 				case "$service" in
-					photoprism-postgres|nextcloud-postgres|authelia-postgres|redis|photoprism|nextcloud|homeassistant|authelia|nginx|audiobookshelf|syncthing)
+					photoprism-postgres|nextcloud-postgres|authelia-postgres|redis|photoprism|nextcloud|homeassistant|authelia|nginx|audiobookshelf)
 						local status
 						status=$(docker inspect --format='{{.State.Health.Status}}' "$service" 2>/dev/null || echo "unknown")
 						if [[ "$status" != "healthy" ]]; then
@@ -787,7 +777,6 @@ main() {
 	echo "  Nextcloud:      https://localhost:8443"
 	echo "  Photoprism:     http://localhost:2342"
 	echo "  Audiobookshelf: http://localhost:13378"
-	echo "  Syncthing:      http://localhost:8384"
 	echo ""
 	log INFO "For detailed health status: ./scripts/check-health.sh"
 }

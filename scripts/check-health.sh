@@ -16,7 +16,7 @@ fi
 
 echo "📊 Service Status:"
 echo ""
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(NAMES|nginx|photoprism|nextcloud|homeassistant|authelia|redis|postgres|audiobookshelf|syncthing)"
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(NAMES|nginx|photoprism|nextcloud|homeassistant|authelia|redis|postgres|audiobookshelf)"
 
 echo ""
 echo "==================================="
@@ -52,7 +52,6 @@ check_health "authelia"
 check_health "authelia-postgres"
 check_health "redis"
 check_health "audiobookshelf"
-check_health "syncthing"
 
 echo ""
 echo "==================================="
@@ -98,11 +97,6 @@ else
     echo "⚪ Audiobookshelf: Unknown (endpoint may not exist)"
 fi
 
-if curl -f -s http://localhost:8384/rest/noauth/health > /dev/null 2>&1; then
-    echo "✅ Syncthing: Accessible"
-else
-    echo "❌ Syncthing: Not accessible"
-fi
 
 echo ""
 echo "==================================="
