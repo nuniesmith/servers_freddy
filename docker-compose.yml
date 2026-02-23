@@ -59,6 +59,13 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/homeassistant
+            
+    audiobookshelf_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobooks}
 
     # SSL Certificates volume (shared between CI/CD and nginx)
     # External volume - created by CI/CD, not managed by docker-compose
@@ -295,7 +302,7 @@ services:
         ports:
             - 13378:80
         volumes:
-            - ${MEDIA_PATH_AUDIOBOOKS:-/media/audiobooks}:/audiobooks
+            - ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobooks}:/audiobooks
         environment:
             - TZ=${TZ:-America/Toronto}
             - PUID=${PUID:-1000}
