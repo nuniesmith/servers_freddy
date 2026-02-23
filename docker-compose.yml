@@ -66,21 +66,21 @@ volumes:
         driver_opts:
             type: none
             o: bind
-            device: ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobookshelf/audiobooks}
+            device: /mnt/1tb/audiobookshelf/audiobooks}
     
     audiobookshelf_config:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobookshelf/config}
+            device: /mnt/1tb/audiobookshelf/config}
             
     audiobookshelf_metadata:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobookshelf/metadata}
+            device: /mnt/1tb/audiobookshelf/metadata}
 
     # SSL Certificates volume (shared between CI/CD and nginx)
     # External volume - created by CI/CD, not managed by docker-compose
@@ -317,7 +317,7 @@ services:
         ports:
             - 13378:80
         volumes:
-            - ${MEDIA_PATH_AUDIOBOOKS:-/mnt/1tb/audiobookshelf/audiobooks}:/audiobooks
+            - audiobookshelf_data:/audiobooks
             - audiobookshelf_config:/config
             - audiobookshelf_metadata:/metadata
         environment:
