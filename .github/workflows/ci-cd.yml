@@ -603,6 +603,9 @@ jobs:
                           /mnt/nextcloud/data \
                           /mnt/nextcloud/postgres \
                           /mnt/homeassistant \
+                          /mnt/audiobookshelf/audiobooks \
+                          /mnt/audiobookshelf/config \
+                          /mnt/audiobookshelf/metadata \
                         && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
 
@@ -690,6 +693,10 @@ jobs:
                       #  causing name conflicts on docker compose up)
                       echo "🐳 Stopping existing services..."
                       docker compose down --remove-orphans 2>/dev/null || true
+
+                      # Remove stale audiobookshelf volumes (created with bad paths before fix)
+                      echo "🧹 Removing stale audiobookshelf volumes (if any)..."
+                      docker volume rm freddy_audiobookshelf_data freddy_audiobookshelf_config freddy_audiobookshelf_metadata 2>/dev/null || true
 
                       # Ensure ssl-certs external volume exists
                       echo "🔐 Ensuring ssl-certs external volume exists..."
