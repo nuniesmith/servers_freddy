@@ -59,28 +59,28 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/homeassistant
-    
+
     # Audiobookshelf
     audiobookshelf_data:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: /mnt/1tb/audiobookshelf/audiobooks}
-    
+            device: /mnt/1tb/audiobookshelf/audiobooks
+
     audiobookshelf_config:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: /mnt/1tb/audiobookshelf/config}
-            
+            device: /mnt/1tb/audiobookshelf/config
+
     audiobookshelf_metadata:
         driver: local
         driver_opts:
             type: none
             o: bind
-            device: /mnt/1tb/audiobookshelf/metadata}
+            device: /mnt/1tb/audiobookshelf/metadata
 
     # SSL Certificates volume (shared between CI/CD and nginx)
     # External volume - created by CI/CD, not managed by docker-compose
