@@ -25,7 +25,6 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/photoprism/postgres
-
     # Cloud Storage volumes
     nextcloud_html:
         driver: local
@@ -51,7 +50,6 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/nextcloud/postgres
-
     # System Services volumes
     homeassistant_config:
         driver: local
@@ -59,7 +57,6 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/homeassistant
-
     # Audiobookshelf
     audiobookshelf_data:
         driver: local
@@ -67,14 +64,12 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/audiobookshelf/audiobooks
-
     audiobookshelf_config:
         driver: local
         driver_opts:
             type: none
             o: bind
             device: /mnt/1tb/audiobookshelf/config
-
     audiobookshelf_metadata:
         driver: local
         driver_opts:
