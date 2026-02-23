@@ -135,8 +135,8 @@ services:
             - PHOTOPRISM_DATABASE_NAME=${PHOTOPRISM_DB_NAME:-photoprism}
             - PHOTOPRISM_DATABASE_USER=${PHOTOPRISM_DB_USER:-photoprism}
             - PHOTOPRISM_DATABASE_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
-            - PHOTOPRISM_UID=${PUID:-1000}
-            - PHOTOPRISM_GID=${PGID:-1000}
+            - PHOTOPRISM_UID=${PUID:-1001}
+            - PHOTOPRISM_GID=${PGID:-1001}
             - TZ=${TZ:-America/Toronto}
         volumes:
             - /mnt/1tb/photos/originals:/photoprism/originals
@@ -317,8 +317,8 @@ services:
             - audiobookshelf_metadata:/metadata
         environment:
             - TZ=${TZ:-America/Toronto}
-            - PUID=${PUID:-1000}
-            - PGID=${PGID:-1000}
+            - PUID=${PUID:-1001}
+            - PGID=${PGID:-1001}
         networks:
             - freddy
         restart: always
