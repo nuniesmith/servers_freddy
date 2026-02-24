@@ -145,7 +145,7 @@ jobs:
                         {"name": "lidarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "prowlarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "bazarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
-                        {"name": "overseerr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "seerr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "tdarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "qbt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "calibre.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
