@@ -4,7 +4,7 @@
 # Personal home server running photos, cloud storage, home automation
 # Repository: nuniesmith/freddy
 #
-# Services: nginx, photoprism, nextcloud, homeassistant, audiobookshelf
+# Services: nginx, photoprism, nextcloud, homeassistant, audiobookshelf, authentik, uptime-kuma
 #
 # Features:
 #   - Cloudflare DNS management (update A records to Tailscale IPs)
@@ -71,6 +71,8 @@ env:
         photo.7gram.xyz
         home.7gram.xyz
         abs.7gram.xyz
+        auth.7gram.xyz
+        status.7gram.xyz
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -117,6 +119,8 @@ jobs:
                         {"name": "photo.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "home.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "abs.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "auth.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "status.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "freddy.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"}
                       ]
 
@@ -139,7 +143,10 @@ jobs:
                         {"name": "sonarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "radarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "lidarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
-                        {"name": "jackett.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "prowlarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "bazarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "overseerr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
+                        {"name": "tdarr.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "qbt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "calibre.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
                         {"name": "yt.7gram.xyz", "content": "${{ secrets.FREDDY_TAILSCALE_IP }}"},
@@ -554,6 +561,9 @@ jobs:
                       AUTHENTIK_POSTGRES_PASSWORD=$(GEN_PASS)
                       SULLIVAN_TAILSCALE_IP=${{ secrets.SULLIVAN_TAILSCALE_IP || '100.87.125.19' }}
                       MEDIA_PATH_AUDIOBOOKS=${{ secrets.MEDIA_PATH_AUDIOBOOKS || '/media/audiobooks' }}
+                      AUTHENTIK_SECRET_KEY=$(GEN_SECRET)$(GEN_SECRET)
+                      AUTHENTIK_POSTGRES_USER=authentik
+                      AUTHENTIK_POSTGRES_PASSWORD=$(GEN_PASS)
                       ENVEOF
                         sed -i 's/^                      //' .env
                         echo "   ✅ Fallback .env created ($(wc -l < .env) lines)"
@@ -623,7 +633,6 @@ jobs:
                           /mnt/authentik/redis \
                           /mnt/authentik/media \
                           /mnt/authentik/templates \
-                          /mnt/authentik/certs \
                           /mnt/uptime-kuma \
                         && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
@@ -756,7 +765,7 @@ jobs:
               uses: nuniesmith/actions/.github/actions/health-check@main
               with:
                   # Note: health-check action expects SPACE-separated container names
-                  containers: nginx photoprism nextcloud homeassistant audiobookshelf
+                  containers: nginx photoprism nextcloud homeassistant audiobookshelf authentik-server uptime-kuma
                   ssh-host: ${{ secrets.FREDDY_TAILSCALE_IP }}
                   ssh-port: ${{ secrets.SSH_PORT || '22' }}
                   ssh-user: ${{ secrets.SSH_USER || 'actions' }}
