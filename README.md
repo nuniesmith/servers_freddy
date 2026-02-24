@@ -17,7 +17,7 @@ Freddy is a self-hosted personal server running on a lightweight home server, pr
 Freddy also proxies to Sullivan server (media server) via Tailscale:
 - Emby, Jellyfin, Plex (media streaming)
 - Sonarr, Radarr, Lidarr (media automation)
-- qBittorrent, Jackett (downloads)
+- qBittorrent, Prowlarr (downloads)
 - Calibre, Mealie, Wiki.js, and more
 
 ## 🔐 SSL Certificates
