@@ -549,6 +549,9 @@ jobs:
                       NEXTCLOUD_DB_PASSWORD=$(GEN_PASS)
                       NEXTCLOUD_ADMIN_USER=admin
                       NEXTCLOUD_ADMIN_PASSWORD=$(GEN_PASS)
+                      AUTHENTIK_SECRET_KEY=$(GEN_SECRET)
+                      AUTHENTIK_POSTGRES_USER=authentik
+                      AUTHENTIK_POSTGRES_PASSWORD=$(GEN_PASS)
                       SULLIVAN_TAILSCALE_IP=${{ secrets.SULLIVAN_TAILSCALE_IP || '100.87.125.19' }}
                       MEDIA_PATH_AUDIOBOOKS=${{ secrets.MEDIA_PATH_AUDIOBOOKS || '/media/audiobooks' }}
                       ENVEOF
@@ -558,11 +561,15 @@ jobs:
 
                       # Verify critical keys
                       MISSING_KEYS=0
-                      for key in TZ PHOTOPRISM_ADMIN_PASSWORD NEXTCLOUD_ADMIN_PASSWORD; do
-                        grep -q "^${key}=" .env 2>/dev/null || MISSING_KEYS=$((MISSING_KEYS + 1))
+                      MISSING_NAMES=""
+                      for key in TZ PHOTOPRISM_ADMIN_PASSWORD NEXTCLOUD_ADMIN_PASSWORD AUTHENTIK_SECRET_KEY AUTHENTIK_POSTGRES_PASSWORD; do
+                        if ! grep -q "^${key}=" .env 2>/dev/null; then
+                          MISSING_KEYS=$((MISSING_KEYS + 1))
+                          MISSING_NAMES="$MISSING_NAMES $key"
+                        fi
                       done
                       if [ "$MISSING_KEYS" -gt 2 ]; then
-                        echo "   ❌ Too many critical keys missing ($MISSING_KEYS)"
+                        echo "   ❌ Too many critical keys missing ($MISSING_KEYS):$MISSING_NAMES"
                         exit 1
                       fi
                       echo "   ✅ .env verification passed ($(grep -c '^[A-Z_]' .env 2>/dev/null || echo '?') keys)"
@@ -583,6 +590,12 @@ jobs:
                       fi
                       if [ -n "${{ secrets.NEXTCLOUD_ADMIN_PASSWORD }}" ]; then
                         sed -i "s/^NEXTCLOUD_ADMIN_PASSWORD=.*/NEXTCLOUD_ADMIN_PASSWORD=${{ secrets.NEXTCLOUD_ADMIN_PASSWORD }}/" .env
+                      fi
+                      if [ -n "${{ secrets.AUTHENTIK_SECRET_KEY }}" ]; then
+                        sed -i "s/^AUTHENTIK_SECRET_KEY=.*/AUTHENTIK_SECRET_KEY=${{ secrets.AUTHENTIK_SECRET_KEY }}/" .env
+                      fi
+                      if [ -n "${{ secrets.AUTHENTIK_POSTGRES_PASSWORD }}" ]; then
+                        sed -i "s/^AUTHENTIK_POSTGRES_PASSWORD=.*/AUTHENTIK_POSTGRES_PASSWORD=${{ secrets.AUTHENTIK_POSTGRES_PASSWORD }}/" .env
                       fi
                       echo "   ✅ Secrets injected"
 
@@ -606,6 +619,12 @@ jobs:
                           /mnt/audiobookshelf/audiobooks \
                           /mnt/audiobookshelf/config \
                           /mnt/audiobookshelf/metadata \
+                          /mnt/authentik/postgres \
+                          /mnt/authentik/redis \
+                          /mnt/authentik/media \
+                          /mnt/authentik/templates \
+                          /mnt/authentik/certs \
+                          /mnt/uptime-kuma \
                         && chown -R 33:33 /mnt/nextcloud/html /mnt/nextcloud/config /mnt/nextcloud/data \
                         && echo '  ✅ Volume directories ready'"
 
