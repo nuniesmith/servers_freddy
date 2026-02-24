@@ -4,6 +4,25 @@
 # SIMPLIFIED NETWORKING: All services on a single network for easy DNS resolution.
 # Nginx can resolve all container names without complex network isolation.
 
+# =============================================================================
+# YAML ANCHORS - Reusable configuration blocks
+# =============================================================================
+x-common-env: &common-env
+    TZ: ${TZ:-America/Toronto}
+    PUID: ${PUID:-1000}
+    PGID: ${PGID:-1000}
+
+x-logging: &default-logging
+    driver: json-file
+    options:
+        max-size: "10m"
+        max-file: "3"
+
+x-healthcheck-defaults: &healthcheck-defaults
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
 # Named volumes for data/cache/databases only
 volumes:
     # Photo Management volumes
@@ -76,6 +95,38 @@ volumes:
             type: none
             o: bind
             device: /mnt/1tb/audiobookshelf/metadata
+    # Authentik volumes
+    authentik_postgres_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/authentik/postgres
+    authentik_redis_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/authentik/redis
+    authentik_media:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/authentik/media
+    authentik_templates:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/authentik/templates
+    # Uptime Kuma
+    uptime_kuma_data:
+        driver: local
+        driver_opts:
+            type: none
+            o: bind
+            device: /mnt/1tb/uptime-kuma
 
     # SSL Certificates volume (shared between CI/CD and nginx)
     # External volume - created by CI/CD, not managed by docker-compose
@@ -99,13 +150,14 @@ services:
             dockerfile: ./docker/nginx/Dockerfile
         container_name: nginx
         environment:
-            - TZ=${TZ:-America/Toronto}
+            TZ: ${TZ:-America/Toronto}
         volumes:
             - ssl-certs:/etc/letsencrypt-volume:ro
         ports:
             - "80:80"
             - "443:443"
         restart: unless-stopped
+        logging: *default-logging
         networks:
             - freddy
         extra_hosts:
@@ -114,10 +166,172 @@ services:
             - "sullivan:${SULLIVAN_TAILSCALE_IP:-100.87.125.19}"
         healthcheck:
             test: ["CMD-SHELL", "curl -kf https://127.0.0.1/health || exit 1"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            <<: *healthcheck-defaults
             start_period: 15s
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
+
+    # =============================================================================
+    # AUTHENTICATION - Authentik SSO
+    # =============================================================================
+
+    # authentik postgresql database
+    authentik-postgres:
+        image: postgres:16-alpine
+        container_name: authentik-postgres
+        environment:
+            POSTGRES_DB: authentik
+            POSTGRES_USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+            POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+            TZ: ${TZ:-America/Toronto}
+        volumes:
+            - authentik_postgres_data:/var/lib/postgresql/data
+        restart: unless-stopped
+        logging: *default-logging
+        networks:
+            - freddy
+        healthcheck:
+            test: ["CMD", "pg_isready", "-U", "${AUTHENTIK_POSTGRES_USER:-authentik}", "-d", "authentik"]
+            <<: *healthcheck-defaults
+            start_period: 30s
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
+
+    # authentik redis cache
+    authentik-redis:
+        image: redis:alpine
+        container_name: authentik-redis
+        command: --save 60 1 --loglevel warning
+        volumes:
+            - authentik_redis_data:/data
+        restart: unless-stopped
+        logging: *default-logging
+        networks:
+            - freddy
+        healthcheck:
+            test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+            <<: *healthcheck-defaults
+            start_period: 10s
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
+
+    # authentik server (web UI + API)
+    authentik-server:
+        image: ghcr.io/goauthentik/server:latest
+        container_name: authentik-server
+        command: server
+        environment:
+            AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+            AUTHENTIK_REDIS__HOST: authentik-redis
+            AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+            AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+            AUTHENTIK_POSTGRESQL__NAME: authentik
+            AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+            AUTHENTIK_EMAIL__HOST: ${EMAIL_HOST:-smtp.gmail.com}
+            AUTHENTIK_EMAIL__PORT: ${EMAIL_PORT:-587}
+            AUTHENTIK_EMAIL__USERNAME: ${EMAIL_USERNAME:-}
+            AUTHENTIK_EMAIL__PASSWORD: ${EMAIL_PASSWORD:-}
+            AUTHENTIK_EMAIL__USE_TLS: "true"
+            AUTHENTIK_EMAIL__FROM: ${EMAIL_FROM:-}
+            AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}
+        volumes:
+            - authentik_media:/media
+            - authentik_templates:/templates
+        ports:
+            - "9000:9000"
+            - "9443:9443"
+        restart: unless-stopped
+        logging: *default-logging
+        depends_on:
+            authentik-postgres:
+                condition: service_healthy
+            authentik-redis:
+                condition: service_healthy
+        networks:
+            - freddy
+        healthcheck:
+            test: ["CMD", "ak", "healthcheck"]
+            <<: *healthcheck-defaults
+            start_period: 60s
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
+
+    # authentik worker (background tasks, LDAP outposts, etc.)
+    authentik-worker:
+        image: ghcr.io/goauthentik/server:latest
+        container_name: authentik-worker
+        command: worker
+        environment:
+            AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+            AUTHENTIK_REDIS__HOST: authentik-redis
+            AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+            AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+            AUTHENTIK_POSTGRESQL__NAME: authentik
+            AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+            AUTHENTIK_EMAIL__HOST: ${EMAIL_HOST:-smtp.gmail.com}
+            AUTHENTIK_EMAIL__PORT: ${EMAIL_PORT:-587}
+            AUTHENTIK_EMAIL__USERNAME: ${EMAIL_USERNAME:-}
+            AUTHENTIK_EMAIL__PASSWORD: ${EMAIL_PASSWORD:-}
+            AUTHENTIK_EMAIL__USE_TLS: "true"
+            AUTHENTIK_EMAIL__FROM: ${EMAIL_FROM:-}
+        user: root
+        volumes:
+            - authentik_media:/media
+            - authentik_templates:/templates
+            - /var/run/docker.sock:/var/run/docker.sock
+        restart: unless-stopped
+        logging: *default-logging
+        depends_on:
+            authentik-postgres:
+                condition: service_healthy
+            authentik-redis:
+                condition: service_healthy
+        networks:
+            - freddy
+        healthcheck:
+            test: ["CMD", "ak", "healthcheck"]
+            <<: *healthcheck-defaults
+            start_period: 60s
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
+
+    # =============================================================================
+    # MONITORING
+    # =============================================================================
+
+    # uptime kuma - service monitoring dashboard
+    uptime-kuma:
+        image: louislam/uptime-kuma:latest
+        container_name: uptime-kuma
+        environment:
+            TZ: ${TZ:-America/Toronto}
+        volumes:
+            - uptime_kuma_data:/app/data
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        ports:
+            - "3001:3001"
+        restart: unless-stopped
+        logging: *default-logging
+        networks:
+            - freddy
+        healthcheck:
+            test: ["CMD-SHELL", "node -e \"const http = require('http'); const options = { host: 'localhost', port: 3001, path: '/api/entry-page', timeout: 2000 }; const req = http.request(options, (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }); req.on('error', () => process.exit(1)); req.end();\""]
+            <<: *healthcheck-defaults
+            start_period: 30s
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
 
     # =============================================================================
     # PHOTO MANAGEMENT
@@ -128,22 +342,23 @@ services:
         image: photoprism/photoprism:latest
         container_name: photoprism
         environment:
-            - PHOTOPRISM_ADMIN_PASSWORD=${PHOTOPRISM_ADMIN_PASSWORD:-pleasechange}
-            - PHOTOPRISM_SITE_URL=http://localhost:2342/
-            - PHOTOPRISM_DATABASE_DRIVER=postgres
-            - PHOTOPRISM_DATABASE_SERVER=photoprism-postgres:5432
-            - PHOTOPRISM_DATABASE_NAME=${PHOTOPRISM_DB_NAME:-photoprism}
-            - PHOTOPRISM_DATABASE_USER=${PHOTOPRISM_DB_USER:-photoprism}
-            - PHOTOPRISM_DATABASE_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
-            - PHOTOPRISM_UID=${PUID:-1001}
-            - PHOTOPRISM_GID=${PGID:-1001}
-            - TZ=${TZ:-America/Toronto}
+            PHOTOPRISM_ADMIN_PASSWORD: ${PHOTOPRISM_ADMIN_PASSWORD:-pleasechange}
+            PHOTOPRISM_SITE_URL: http://localhost:2342/
+            PHOTOPRISM_DATABASE_DRIVER: postgres
+            PHOTOPRISM_DATABASE_SERVER: photoprism-postgres:5432
+            PHOTOPRISM_DATABASE_NAME: ${PHOTOPRISM_DB_NAME:-photoprism}
+            PHOTOPRISM_DATABASE_USER: ${PHOTOPRISM_DB_USER:-photoprism}
+            PHOTOPRISM_DATABASE_PASSWORD: ${PHOTOPRISM_DB_PASSWORD}
+            PHOTOPRISM_UID: ${PUID:-1000}
+            PHOTOPRISM_GID: ${PGID:-1000}
+            TZ: ${TZ:-America/Toronto}
         volumes:
-            - /mnt/1tb/photos/originals:/photoprism/originals
+            - photos_originals:/photoprism/originals
             - photoprism_storage:/photoprism/storage
         ports:
             - "2342:2342"
         restart: unless-stopped
+        logging: *default-logging
         depends_on:
             photoprism-postgres:
                 condition: service_healthy
@@ -151,39 +366,36 @@ services:
             - freddy
         healthcheck:
             test: ["CMD", "photoprism", "status"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            <<: *healthcheck-defaults
             start_period: 60s
+        deploy:
+            resources:
+                limits:
+                    memory: 2G
 
     # postgres database for photoprism
     photoprism-postgres:
         image: postgres:16-alpine
         container_name: photoprism-postgres
         environment:
-            - POSTGRES_DB=${PHOTOPRISM_DB_NAME:-photoprism}
-            - POSTGRES_USER=${PHOTOPRISM_DB_USER:-photoprism}
-            - POSTGRES_PASSWORD=${PHOTOPRISM_DB_PASSWORD:-changeme}
-            - TZ=${TZ:-America/Toronto}
+            POSTGRES_DB: ${PHOTOPRISM_DB_NAME:-photoprism}
+            POSTGRES_USER: ${PHOTOPRISM_DB_USER:-photoprism}
+            POSTGRES_PASSWORD: ${PHOTOPRISM_DB_PASSWORD}
+            TZ: ${TZ:-America/Toronto}
         volumes:
             - photoprism_postgres_data:/var/lib/postgresql/data
         restart: unless-stopped
+        logging: *default-logging
         networks:
             - freddy
         healthcheck:
-            test:
-                [
-                    "CMD",
-                    "pg_isready",
-                    "-U",
-                    "${PHOTOPRISM_DB_USER:-photoprism}",
-                    "-d",
-                    "${PHOTOPRISM_DB_NAME:-photoprism}",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            test: ["CMD", "pg_isready", "-U", "${PHOTOPRISM_DB_USER:-photoprism}", "-d", "${PHOTOPRISM_DB_NAME:-photoprism}"]
+            <<: *healthcheck-defaults
             start_period: 30s
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
 
     # =============================================================================
     # CLOUD STORAGE
@@ -198,19 +410,19 @@ services:
             dockerfile: ./docker/nextcloud/Dockerfile
         container_name: nextcloud
         environment:
-            - TZ=${TZ:-America/Toronto}
-            - POSTGRES_HOST=nextcloud-postgres
-            - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
-            - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
-            - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
-            - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER:-admin}
-            - NEXTCLOUD_ADMIN_PASSWORD=${NEXTCLOUD_ADMIN_PASSWORD:-changeme}
-            - NEXTCLOUD_TRUSTED_DOMAINS=nc.7gram.xyz localhost nextcloud
-            - APACHE_DISABLE_REWRITE_IP=1
-            - TRUSTED_PROXIES=172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
-            - OVERWRITEPROTOCOL=https
-            - OVERWRITEHOST=nc.7gram.xyz
-            - OVERWRITECLIURL=https://nc.7gram.xyz
+            TZ: ${TZ:-America/Toronto}
+            POSTGRES_HOST: nextcloud-postgres
+            POSTGRES_DB: ${NEXTCLOUD_DB_NAME:-nextcloud}
+            POSTGRES_USER: ${NEXTCLOUD_DB_USER:-nextcloud}
+            POSTGRES_PASSWORD: ${NEXTCLOUD_DB_PASSWORD}
+            NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
+            NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+            NEXTCLOUD_TRUSTED_DOMAINS: nc.7gram.xyz localhost nextcloud
+            APACHE_DISABLE_REWRITE_IP: 1
+            TRUSTED_PROXIES: 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16
+            OVERWRITEPROTOCOL: https
+            OVERWRITEHOST: nc.7gram.xyz
+            OVERWRITECLIURL: https://nc.7gram.xyz
         volumes:
             - nextcloud_html:/var/www/html
             - nextcloud_config:/var/www/html/config
@@ -218,18 +430,20 @@ services:
         ports:
             - "8080:80"
         restart: unless-stopped
+        logging: *default-logging
         depends_on:
             nextcloud-postgres:
                 condition: service_healthy
         networks:
             - freddy
         healthcheck:
-            test:
-                ["CMD-SHELL", "curl -sf http://localhost/status.php || exit 1"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            test: ["CMD-SHELL", "curl -sf http://localhost/status.php || exit 1"]
+            <<: *healthcheck-defaults
             start_period: 120s
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
 
     # nextcloud cron - runs background jobs every 5 minutes
     # Uses the same image and volumes as nextcloud but with the cron entrypoint
@@ -240,95 +454,96 @@ services:
         container_name: nextcloud-cron
         entrypoint: /cron.sh
         environment:
-            - TZ=${TZ:-America/Toronto}
+            TZ: ${TZ:-America/Toronto}
         volumes:
             - nextcloud_html:/var/www/html
             - nextcloud_config:/var/www/html/config
             - nextcloud_data:/var/www/html/data
         restart: unless-stopped
+        logging: *default-logging
         depends_on:
             - nextcloud
         networks:
             - freddy
+        deploy:
+            resources:
+                limits:
+                    memory: 256M
 
     # postgres database for nextcloud
     nextcloud-postgres:
         image: postgres:16-alpine
         container_name: nextcloud-postgres
         environment:
-            - POSTGRES_DB=${NEXTCLOUD_DB_NAME:-nextcloud}
-            - POSTGRES_USER=${NEXTCLOUD_DB_USER:-nextcloud}
-            - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD:-changeme}
-            - TZ=${TZ:-America/Toronto}
+            POSTGRES_DB: ${NEXTCLOUD_DB_NAME:-nextcloud}
+            POSTGRES_USER: ${NEXTCLOUD_DB_USER:-nextcloud}
+            POSTGRES_PASSWORD: ${NEXTCLOUD_DB_PASSWORD}
+            TZ: ${TZ:-America/Toronto}
         volumes:
             - nextcloud_postgres_data:/var/lib/postgresql/data
         restart: unless-stopped
+        logging: *default-logging
         networks:
             - freddy
         healthcheck:
-            test:
-                [
-                    "CMD",
-                    "pg_isready",
-                    "-U",
-                    "${NEXTCLOUD_DB_USER:-nextcloud}",
-                    "-d",
-                    "${NEXTCLOUD_DB_NAME:-nextcloud}",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            test: ["CMD", "pg_isready", "-U", "${NEXTCLOUD_DB_USER:-nextcloud}", "-d", "${NEXTCLOUD_DB_NAME:-nextcloud}"]
+            <<: *healthcheck-defaults
             start_period: 30s
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
 
     # =============================================================================
     # SYSTEM SERVICES
     # =============================================================================
 
-    # home assistant (requires host network for device discovery)
+    # home assistant
+    # NOTE: host network required for mDNS/SSDP device discovery
+    # Mount only specific devices you need (e.g., /dev/ttyUSB0 for Zigbee)
     homeassistant:
         image: ghcr.io/home-assistant/home-assistant:stable
         container_name: homeassistant
         privileged: true
         network_mode: host
         environment:
-            - TZ=${TZ:-America/Toronto}
+            TZ: ${TZ:-America/Toronto}
         volumes:
             - homeassistant_config:/config
             - /etc/localtime:/etc/localtime:ro
             - /run/dbus:/run/dbus:ro
-            - /dev:/dev
         restart: unless-stopped
+        logging: *default-logging
         healthcheck:
             test: ["CMD", "curl", "-sf", "http://localhost:8123/manifest.json"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            <<: *healthcheck-defaults
             start_period: 60s
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
 
     # audiobookshelf
     audiobookshelf:
         image: ghcr.io/advplyr/audiobookshelf:latest
         container_name: audiobookshelf
         ports:
-            - 13378:80
+            - "13378:80"
         volumes:
             - audiobookshelf_data:/audiobooks
             - audiobookshelf_config:/config
             - audiobookshelf_metadata:/metadata
         environment:
-            - TZ=${TZ:-America/Toronto}
-            - PUID=${PUID:-1001}
-            - PGID=${PGID:-1001}
+            <<: *common-env
         networks:
             - freddy
-        restart: always
+        restart: unless-stopped
+        logging: *default-logging
         healthcheck:
-            test:
-                [
-                    "CMD-SHELL",
-                    "wget --spider --quiet http://localhost:80/healthcheck || exit 1",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
+            test: ["CMD-SHELL", "wget --spider --quiet http://localhost:80/healthcheck || exit 1"]
+            <<: *healthcheck-defaults
             start_period: 40s
+        deploy:
+            resources:
+                limits:
+                    memory: 512M
