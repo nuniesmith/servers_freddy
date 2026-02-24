@@ -3,7 +3,6 @@
 #
 # SIMPLIFIED NETWORKING: All services on a single network for easy DNS resolution.
 # Nginx can resolve all container names without complex network isolation.
-
 # =============================================================================
 # YAML ANCHORS - Reusable configuration blocks
 # =============================================================================
